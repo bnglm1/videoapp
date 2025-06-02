@@ -1,0 +1,37 @@
+name: videoapp
+description: A Flutter video player app using Firebase and Google Cloud Storage
+publish_to: 'none'
+
+version: 1.0.2+4
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  firebase_core: ^2.15.1
+  firebase_database: ^10.2.5
+  video_player: ^2.7.1
+  chewie: ^1.7.1
+  http: ^1.1.0
+  webview_flutter: ^4.10.0
+  google_fonts: ^6.2.1
+  cached_network_image: ^3.4.1
+  url_launcher: ^6.3.1
+  youtube_player_flutter: ^9.1.1
+  firebase_auth: ^4.16.0
+  cloud_firestore: ^4.17.5
+  shared_preferences: ^2.5.3
+  google_mobile_ads: ^5.3.1
+  carousel_slider: ^5.0.0
+  applovin_max: ^3.5.0  
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true

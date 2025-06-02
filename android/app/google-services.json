@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "973974395167",
+    "firebase_url": "https://denemetoon-default-rtdb.firebaseio.com",
+    "project_id": "denemetoon",
+    "storage_bucket": "denemetoon.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:973974395167:android:8692c4c63f63f10728782a",
+        "android_client_info": {
+          "package_name": "com.bintech.videoapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDpm4MxbcKuCsPqIV75hLLnrV7RZVxSmCw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
