@@ -53,8 +53,13 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     _checkIfFavorite();
   }
 
-  void _loadInterstitialAd() {
-    InterstitialAd.load(
+  Future<void> _loadInterstitialAd() async {
+    // Mevcut reklamı temizle
+    _interstitialAd?.dispose();
+    _isAdLoaded = false;
+    
+    // Yeni reklam yükle
+    await InterstitialAd.load(
       adUnitId: 'ca-app-pub-7690250755006392/8813706277',
       request: const AdRequest(),
       adLoadCallback: InterstitialAdLoadCallback(
@@ -74,6 +79,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         },
         onAdFailedToLoad: (LoadAdError error) {
           print("Reklam yüklenemedi: $error");
+          _isAdLoaded = false;
         },
       ),
     );
@@ -195,6 +201,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     try {
       await _incrementViewCount();
       
+      // Reklam yüklenip yüklenmediğinden bağımsız olarak her seferinde gösterelim
       // Kullanıcıya yükleme göster
       if (context.mounted) {
         showDialog(
@@ -206,16 +213,18 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         );
       }
       
-      // Reklamın yüklenmesi için gecikme ekle (maksimum 2 saniye)
-      if (!_isAdLoaded) {
-        await Future.delayed(const Duration(seconds: 2));
-      }
+      // Her navigasyon için reklam yükleme girişimi yap
+      await _loadInterstitialAd();
+      
+      // Yüklemeye zaman tanı (maksimum 2 saniye)
+      await Future.delayed(const Duration(seconds: 2));
       
       // Dialog'u kapat
       if (context.mounted) {
         Navigator.of(context).pop();
       }
       
+      // Reklam yüklendiyse göster
       if (_isAdLoaded && _interstitialAd != null) {
         _interstitialAd!.show().catchError((error) {
           print("Reklam gösterme hatası: $error");

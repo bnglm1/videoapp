@@ -24,10 +24,11 @@ class VideoPlayerPage extends StatefulWidget {
 }
 
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
-  // Reklam değişkenleri
-  InterstitialAd? _interstitialAd;
-  bool _isAdLoaded = false;
+  // Reklam değişkenlerini kaldırın veya devre dışı bırakın
+  // InterstitialAd? _interstitialAd;
+  // bool _isAdLoaded = false;
   bool _videoStarted = false;
+  bool _isLoading = true;
   
   // Video oynatıcı değişkenleri
   late WebViewController _webViewController;
@@ -56,79 +57,103 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _enterFullScreen();
     _startHideControlsTimer();
     
-    // Video tipini belirle ve hazırlıkları yap
-    _detectVideoType();
+    // Video tipini belirle ama HENÜZ YÜKLEME YAPMA
+    _detectVideoTypeWithoutLoading();
     
-    // Reklam yükleme işlemini başlat
-    _loadInterstitialAd();
-  }
-
-  // Reklam yükle
-  void _loadInterstitialAd() {
-    InterstitialAd.load(
-      adUnitId: 'ca-app-pub-7690250755006392/8813706277',
-      request: const AdRequest(),
-      adLoadCallback: InterstitialAdLoadCallback(
-        onAdLoaded: (InterstitialAd ad) {
-          // Reklam yüklendi
-          _interstitialAd = ad;
-          _isAdLoaded = true;
-          
-          // Reklam kapandığında çalışacak callback
-          ad.fullScreenContentCallback = FullScreenContentCallback(
-            onAdDismissedFullScreenContent: (ad) {
-              // Reklam kapandığında videoyu başlat
-              _startVideo();
-              ad.dispose();
-            },
-            onAdFailedToShowFullScreenContent: (ad, error) {
-              // Reklam gösterme hatası olursa
-              print('Reklam gösterme hatası: $error');
-              _startVideo();
-              ad.dispose();
-            },
-          );
-          
-          // Reklam yüklendikten sonra hemen göster
-          _showAd();
-        },
-        onAdFailedToLoad: (LoadAdError error) {
-          // Reklam yüklenemezse direkt videoyu başlat
-          print('Reklam yüklenemedi: $error');
-          _startVideo();
-        },
-      ),
-    );
-  }
-
-  // Reklamı göster
-  void _showAd() {
-    try {
-      if (_isAdLoaded && _interstitialAd != null) {
-        _interstitialAd!.show();
-      } else {
-        // Reklam yoksa veya yüklenemezse videoyu başlat
-        _startVideo();
+    // 2 saniye sonra yüklemeyi göster
+    Future.delayed(Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _isLoading = false; // Yükleme tamamlandı
+        });
+        
+        // Şimdi videoyu başlat
+        _loadAndStartVideo();
       }
-    } catch (e) {
-      print('Reklam gösterilirken hata: $e');
-      _startVideo();
+    });
+  }
+
+  // Video tipini belirleyen ancak hemen URL yüklemeyen yöntem
+  void _detectVideoTypeWithoutLoading() {
+    String url = widget.videoUrl;
+
+    if (url.endsWith(".mp4")) {
+      // Doğrudan MP4 video
+      videoType = "video_player";
+      // VideoController başlat ama initialize etme
+      _videoPlayerController = VideoPlayerController.networkUrl(Uri.parse(url));
+    } else if (url.contains("youtube.com") || url.contains("youtu.be")) {
+      // YouTube videosu
+      videoType = "youtube";
+      String? videoId = YoutubePlayer.convertUrlToId(url);
+      
+      if (videoId != null) {
+        this.videoId = videoId;
+        // YouTube Controller'ı başlat ama otomatik oynatmaz
+      }
+    } else if (url.contains("sibnet")) {
+      // Sibnet videosu
+      videoType = "sibnet";
+      // WebViewController oluştur ama URL'yi yükleme
+      _webViewController = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setBackgroundColor(const Color(0xFF000000))
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onPageFinished: (String url) {
+              _injectSibnetPlayerEnhancements();
+            },
+          ),
+        );
+        // URL yükleme şimdilik yapılmıyor
+    } else {
+      // Diğer web videoları
+      videoType = "webview";
+      // WebViewController oluştur ama URL'yi yükleme
+      _webViewController = WebViewController()
+        ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        ..setNavigationDelegate(
+          NavigationDelegate(
+            onPageFinished: (String url) {
+              _injectWebViewEnhancements();
+            },
+          ),
+        );
+        // URL yükleme şimdilik yapılmıyor
     }
   }
 
-  // Videoyu başlat
-  void _startVideo() {
-    if (_videoStarted) return; // Zaten başlatılmışsa tekrarlama
-    _videoStarted = true;
-    
-    // Video tipine göre başlat
+  // Gecikmeden sonra videoyu yükle ve başlat
+  void _loadAndStartVideo() {
     if (videoType == "video_player" && _videoPlayerController != null) {
-      _videoPlayerController!.play();
-    } else if (videoType == "youtube" && _youtubeController != null) {
-      _youtubeController!.play();
+      _videoPlayerController!.initialize().then((_) {
+        if (mounted) {
+          setState(() {});
+          _videoPlayerController!.play();
+        }
+      });
+    } else if (videoType == "youtube" && videoId.isNotEmpty) {
+      _youtubeController = YoutubePlayerController(
+        initialVideoId: videoId,
+        flags: const YoutubePlayerFlags(
+          autoPlay: true,
+          mute: false,
+          enableCaption: false,
+        ),
+      );
+      
+      _youtubeController!.addListener(() {
+        if (_youtubeController!.metadata.title.isNotEmpty) {
+          videoTitle = _youtubeController!.metadata.title;
+        }
+      });
     } else if (videoType == "webview" || videoType == "sibnet") {
-      _injectWebViewEnhancements();
+      // WebView için URL'yi şimdi yükle
+      _webViewController.loadRequest(Uri.parse(widget.videoUrl));
     }
+    
+    _videoStarted = true;
     
     // İzleme geçmişi zamanlayıcısını başlat
     _watchHistoryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -488,9 +513,35 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Video oynatıcının tipine göre gösterilecek widget
+    // Eğer hala yükleniyor durumdaysa, yükleme ekranı göster
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                color: Colors.orangeAccent,
+                strokeWidth: 3,
+              ),
+              SizedBox(height: 20),
+              Text(
+                "Video yükleniyor...",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    // Normal video oynatıcı kodu - mevcut kodu aynen koru
     Widget videoWidget;
-
     if (videoType == "youtube" && _youtubeController != null) {
       videoWidget = SizedBox(
         width: MediaQuery.of(context).size.width,
@@ -553,6 +604,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                     // Sayfadan çık
                     Navigator.of(context).pop();
                   },
+                ),
+              ),
+            // Yükleme göstergesi
+            if (_isLoading)
+              const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
               ),
           ],
@@ -682,8 +740,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     // Son izleme kaydet
     _saveWatchHistory();
     
-    // Reklam temizle
-    _interstitialAd?.dispose();
+    // Reklam temizleme kodunu kaldırın
+    // _interstitialAd?.dispose();
     
     // Zamanlayıcıları iptal et
     _watchHistoryTimer?.cancel();

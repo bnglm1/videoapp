@@ -13,7 +13,7 @@ class SeasonListPage extends StatefulWidget {
 }
 
 class _SeasonListPageState extends State<SeasonListPage> {
-  bool _isExpanded = false;
+  int _selectedSeasonIndex = 0; // Seçili sezon için değişken ekledik
   late BannerAd _bannerAd;
   bool _isBannerAdLoaded = false;
   final ScrollController _scrollController = ScrollController();
@@ -124,7 +124,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                         Text(
                           widget.series.categories.join(", "),
                           style: const TextStyle(
-                            color: Colors.orangeAccent,
+                            color: Colors.blueAccent,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
@@ -144,108 +144,205 @@ class _SeasonListPageState extends State<SeasonListPage> {
                     ),
                   ),
                 ),
-                SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final season = widget.series.seasons[index];
-
-                      return AnimatedOpacity(
-                        duration: const Duration(milliseconds: 500),
-                        opacity: 1.0,
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: _isExpanded
-                                ? Colors.grey.withOpacity(0.5)
-                                : Colors.grey[850]?.withOpacity(0.9),
-                            borderRadius: BorderRadius.circular(15),
+                
+                // Yeni Modern Sezon Seçici
+                SliverToBoxAdapter(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 12.0),
+                          child: Text(
+                            'Sezonlar',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
-                          child: ExpansionTile(
-                            onExpansionChanged: (expanded) {
-                              setState(() {
-                                _isExpanded = expanded;
-                              });
-                            },
-                            leading: const Icon(
-                              Icons.tv,
-                              color: Colors.orangeAccent,
-                              size: 30,
-                            ),
-                            title: Text(
-                              "Sezon ${season.seasonNumber}",
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            children: season.episodes.map((episode) {
-                              return ListTile(
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                leading: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    episode.thumbnail,
-                                    width: 80,
-                                    height: 60,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        width: 80,
-                                        height: 60,
-                                        color: Colors.grey,
-                                        child: const Icon(Icons.broken_image, color: Colors.white),
-                                      );
-                                    },
+                        ),
+                        SizedBox(
+                          height: 50,
+                          child: ListView.builder(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            scrollDirection: Axis.horizontal,
+                            itemCount: widget.series.seasons.length,
+                            itemBuilder: (context, index) {
+                              final isSelected = _selectedSeasonIndex == index;
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedSeasonIndex = index;
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: EdgeInsets.symmetric(horizontal: 16),
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: isSelected ? Colors.blueAccent : Colors.grey[850],
+                                      borderRadius: BorderRadius.circular(25),
+                                      border: Border.all(
+                                        color: isSelected ? Colors.blueAccent : Colors.grey[700]!,
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'Sezon ${widget.series.seasons[index].seasonNumber}',
+                                      style: TextStyle(
+                                        color: isSelected ? Colors.black : Colors.white,
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                                title: Text(
-                                  episode.title,
-                                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                                ),
-                                trailing: const Icon(
-                                  Icons.play_circle_fill,
-                                  color: Colors.blue,
-                                  size: 30,
-                                ),
-                                onTap: () {
-                                  if (episode.videoUrl.isNotEmpty) {
-                                    // Eğer video bağlantısı varsa, video detay sayfasına yönlendir
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => EpisodeDetailsPage(
-                                          videoUrl: episode.videoUrl,
-                                          episodeTitle: episode.title,
-                                        ),
-                                      ),
-                                    );
-                                  } else {
-                                    // Eğer video bağlantısı yoksa, kullanıcıya mesaj göster
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          "Videoya ait link bulunamadı",
-                                          style: TextStyle(color: Colors.white),
-                                        ),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
-                                  }
-                                },
                               );
-                            }).toList(),
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                
+                // Seçilen sezonun bölümleri
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, episodeIndex) {
+                      final episode = widget.series.seasons[_selectedSeasonIndex].episodes[episodeIndex];
+                      
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                        child: Card(
+                          color: Colors.grey[850],
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 4,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () {
+                              if (episode.videoUrl.isNotEmpty) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => EpisodeDetailsPage(
+                                      videoUrl: episode.videoUrl,
+                                      episodeTitle: episode.title,
+                                      thumbnailUrl: episode.thumbnail,
+                                    ),
+                                  ),
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text("Videoya ait link bulunamadı"),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(8.0),
+                              child: Row(
+                                children: [
+                                  // Thumbnail
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Stack(
+                                      children: [
+                                        Image.network(
+                                          episode.thumbnail,
+                                          width: 120,
+                                          height: 80,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return Container(
+                                              width: 120,
+                                              height: 80,
+                                              color: Colors.grey,
+                                              child: const Icon(Icons.broken_image, color: Colors.white),
+                                            );
+                                          },
+                                        ),
+                                        // Bölüm numarası
+                                        Positioned(
+                                          bottom: 0,
+                                          left: 0,
+                                          right: 0,
+                                          child: Container(
+                                            color: Colors.black.withOpacity(0.7),
+                                            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                                            child: Text(
+                                              'Bölüm ${episodeIndex + 1}',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  
+                                  // Bölüm bilgileri
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            episode.title,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          // Removed the duration line that caused the error
+                                          const SizedBox(height: 4),
+                                          // You can add other episode details here if needed
+                                          Text(
+                                            'Bölüm ${episodeIndex + 1}',
+                                            style: TextStyle(
+                                              color: Colors.grey[400],
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  
+                                  // Oynat butonu
+                                  Icon(
+                                    Icons.play_circle_fill,
+                                    color: Colors.blue,
+                                    size: 36,
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       );
                     },
-                    childCount: widget.series.seasons.length,
+                    childCount: widget.series.seasons[_selectedSeasonIndex].episodes.length,
                   ),
                 ),
               ],
             ),
           ),
-          // 📌 Banner Reklam Alanı
+          // Banner Reklam Alanı
           SizedBox(
             height: 50, // Banner yüksekliği
             child: _isBannerAdLoaded
