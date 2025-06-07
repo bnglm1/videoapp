@@ -1,15 +1,21 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:video_player/video_player.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class VideoPlayerPage extends StatefulWidget {
   final String videoUrl;
+  final String videoTitle;
 
   const VideoPlayerPage({
     required this.videoUrl,
+    this.videoTitle = '',
     super.key,
   });
 
@@ -18,71 +24,172 @@ class VideoPlayerPage extends StatefulWidget {
 }
 
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
+  // Reklam değişkenleri
+  InterstitialAd? _interstitialAd;
+  bool _isAdLoaded = false;
+  bool _videoStarted = false;
+  
+  // Video oynatıcı değişkenleri
   late WebViewController _webViewController;
   YoutubePlayerController? _youtubeController;
   VideoPlayerController? _videoPlayerController;
   bool isFullScreen = true;
-  bool _showControls = true; // Kontrol düğmelerinin görünürlüğü
+  bool _showControls = true;
   Timer? _hideControlsTimer;
 
   String videoType = "webview";
+  Timer? _watchHistoryTimer;
+  String videoId = '';
+  String videoTitle = '';
 
   @override
   void initState() {
     super.initState();
-    _detectVideoType();
+    
+    // Video bilgilerini ayarla
+    videoId = widget.videoUrl.hashCode.toString();
+    videoTitle = widget.videoTitle.isNotEmpty 
+        ? widget.videoTitle 
+        : 'Video ${videoId.substring(0, min(videoId.length, 6))}';
+    
+    // Ekran ayarları
     _enterFullScreen();
-    _startHideControlsTimer(); // Kontrol düğmelerini gizlemek için zamanlayıcı başlat
-
-    // Pozisyon değişikliklerini dinlemek için listener ekleyin
-    _videoPlayerController?.addListener(() {
-      setState(() {}); // Pozisyon değiştiğinde UI'yi güncelle
-    });
+    _startHideControlsTimer();
+    
+    // Video tipini belirle ve hazırlıkları yap
+    _detectVideoType();
+    
+    // Reklam yükleme işlemini başlat
+    _loadInterstitialAd();
   }
 
-  void _enterFullScreen() {
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.immersiveSticky,
-      overlays: [],
+  // Reklam yükle
+  void _loadInterstitialAd() {
+    InterstitialAd.load(
+      adUnitId: 'ca-app-pub-7690250755006392/8813706277',
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (InterstitialAd ad) {
+          // Reklam yüklendi
+          _interstitialAd = ad;
+          _isAdLoaded = true;
+          
+          // Reklam kapandığında çalışacak callback
+          ad.fullScreenContentCallback = FullScreenContentCallback(
+            onAdDismissedFullScreenContent: (ad) {
+              // Reklam kapandığında videoyu başlat
+              _startVideo();
+              ad.dispose();
+            },
+            onAdFailedToShowFullScreenContent: (ad, error) {
+              // Reklam gösterme hatası olursa
+              print('Reklam gösterme hatası: $error');
+              _startVideo();
+              ad.dispose();
+            },
+          );
+          
+          // Reklam yüklendikten sonra hemen göster
+          _showAd();
+        },
+        onAdFailedToLoad: (LoadAdError error) {
+          // Reklam yüklenemezse direkt videoyu başlat
+          print('Reklam yüklenemedi: $error');
+          _startVideo();
+        },
+      ),
     );
+  }
+
+  // Reklamı göster
+  void _showAd() {
+    try {
+      if (_isAdLoaded && _interstitialAd != null) {
+        _interstitialAd!.show();
+      } else {
+        // Reklam yoksa veya yüklenemezse videoyu başlat
+        _startVideo();
+      }
+    } catch (e) {
+      print('Reklam gösterilirken hata: $e');
+      _startVideo();
+    }
+  }
+
+  // Videoyu başlat
+  void _startVideo() {
+    if (_videoStarted) return; // Zaten başlatılmışsa tekrarlama
+    _videoStarted = true;
+    
+    // Video tipine göre başlat
+    if (videoType == "video_player" && _videoPlayerController != null) {
+      _videoPlayerController!.play();
+    } else if (videoType == "youtube" && _youtubeController != null) {
+      _youtubeController!.play();
+    } else if (videoType == "webview" || videoType == "sibnet") {
+      _injectWebViewEnhancements();
+    }
+    
+    // İzleme geçmişi zamanlayıcısını başlat
+    _watchHistoryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _saveWatchHistory();
+    });
+  }
+  
+  // Video ekran ayarları
+  void _enterFullScreen() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
   }
-
+  
   void _exitFullScreen() {
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.manual,
       overlays: SystemUiOverlay.values,
     );
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-    ]);
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
 
+  // Video tipini tespit et
   void _detectVideoType() {
     String url = widget.videoUrl;
 
     if (url.endsWith(".mp4")) {
+      // Doğrudan MP4 video
       videoType = "video_player";
       _videoPlayerController = VideoPlayerController.networkUrl(Uri.parse(url))
         ..initialize().then((_) {
           setState(() {});
-          _videoPlayerController!.play();
+          // Otomatik başlatma yok, reklam sonrası başlayacak
         });
     } else if (url.contains("youtube.com") || url.contains("youtu.be")) {
+      // YouTube videosu
       videoType = "youtube";
       String? videoId = YoutubePlayer.convertUrlToId(url);
-      _youtubeController = YoutubePlayerController(
-        initialVideoId: videoId ?? '',
-        flags: const YoutubePlayerFlags(
-          autoPlay: true,
-          mute: false,
-          enableCaption: false,
-        ),
-      );
+      
+      if (videoId != null) {
+        this.videoId = videoId;
+        
+        _youtubeController = YoutubePlayerController(
+          initialVideoId: videoId,
+          flags: const YoutubePlayerFlags(
+            autoPlay: false, // Otomatik başlatma yok
+            mute: false,
+            enableCaption: false,
+          ),
+        );
+        
+        _youtubeController!.addListener(() {
+          if (_youtubeController!.metadata.title.isNotEmpty) {
+            videoTitle = _youtubeController!.metadata.title;
+          }
+        });
+      }
     } else if (url.contains("sibnet")) {
+      // Sibnet videosu
       videoType = "sibnet";
       _webViewController = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -91,12 +198,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           NavigationDelegate(
             onPageFinished: (String url) {
               _injectSibnetPlayerEnhancements();
-              _enterFullScreen();
             },
           ),
         )
         ..loadRequest(Uri.parse(url));
     } else {
+      // Diğer web videoları
       videoType = "webview";
       _webViewController = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -104,8 +211,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         ..setNavigationDelegate(
           NavigationDelegate(
             onPageFinished: (String url) {
-              _injectWebViewEnhancements();
-              _enterFullScreen();
+              // Sayfanın yüklenmesi tamamlandığında
             },
           ),
         )
@@ -113,6 +219,20 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }
   }
 
+  // WebView'da video kontrolü için JavaScript enjeksiyonu
+  void _injectWebViewEnhancements() {
+    _webViewController.runJavaScript('''
+      (function() {
+        const video = document.querySelector('video');
+        if (video) {
+          video.play();
+          video.requestFullscreen().catch(e => console.log('Fullscreen error:', e));
+        }
+      })();
+    ''');
+  }
+
+  // Sibnet için özel JavaScript enjeksiyonu
   void _injectSibnetPlayerEnhancements() {
     _webViewController.runJavaScript('''
       const enhancePlayer = () => {
@@ -296,45 +416,15 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     ''');
   }
 
-  void _injectWebViewEnhancements() {
-  _webViewController.runJavaScript('''
-    (function() {
-      const video = document.querySelector('video');
-      if (video) {
-        video.play();
-        video.requestFullscreen().catch(e => console.log('Fullscreen error:', e));
-      }
-    })();
-  ''');
-}
-
-
-  void toggleFullScreen() {
-    setState(() {
-      isFullScreen = !isFullScreen;
-    });
-
-    if (isFullScreen) {
-      _enterFullScreen();
-    } else {
-      exitFullScreen();
-    }
-  }
-
-  void exitFullScreen() {
-    setState(() {
-      isFullScreen = false;
-    });
-
-    _exitFullScreen();
-  }
-
+  // Kontrolü gizleme için zamanlayıcı
   void _startHideControlsTimer() {
     _hideControlsTimer?.cancel();
     _hideControlsTimer = Timer(const Duration(seconds: 3), () {
-      setState(() {
-        _showControls = false;
-      });
+      if (mounted) {
+        setState(() {
+          _showControls = false;
+        });
+      }
     });
   }
 
@@ -347,8 +437,58 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }
   }
 
+  // İzleme geçmişini kaydet
+  Future<void> _saveWatchHistory() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      
+      // Video başlığı kontrolü
+      String currentVideoTitle = videoTitle.isNotEmpty 
+          ? videoTitle 
+          : "Video ${videoId.substring(0, min(videoId.length, 6))}";
+      
+      // Anlamsız başlık kontrolü
+      if (currentVideoTitle.contains('.php') || 
+          currentVideoTitle.length < 3 || 
+          currentVideoTitle.contains('http')) {
+        currentVideoTitle = widget.videoTitle.isNotEmpty 
+            ? widget.videoTitle 
+            : "Video ${videoId.substring(0, min(videoId.length, 6))}";
+      }
+      
+      // Firestore'a kaydet
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('watchHistory')
+          .doc(videoId);
+      
+      final docSnapshot = await docRef.get();
+      
+      if (docSnapshot.exists) {
+        // Belge varsa güncelle
+        await docRef.update({
+          'videoTitle': currentVideoTitle,
+          'lastWatched': FieldValue.serverTimestamp(),
+          'watchCount': FieldValue.increment(1)
+        });
+      } else {
+        // Belge yoksa oluştur
+        await docRef.set({
+          'videoTitle': currentVideoTitle,
+          'lastWatched': FieldValue.serverTimestamp(),
+          'watchCount': 1
+        });
+      }
+    } catch (e) {
+      print('İzleme geçmişi kaydedilirken hata: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Video oynatıcının tipine göre gösterilecek widget
     Widget videoWidget;
 
     if (videoType == "youtube" && _youtubeController != null) {
@@ -382,13 +522,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           ],
         ),
       );
-    } else if (videoType == "sibnet") {
-      videoWidget = SizedBox(
-        width: MediaQuery.of(context).size.width,
-        height: MediaQuery.of(context).size.height,
-        child: WebViewWidget(controller: _webViewController),
-      );
     } else {
+      // WebView tipindeki videolar için
       videoWidget = SizedBox(
         width: MediaQuery.of(context).size.width,
         height: MediaQuery.of(context).size.height,
@@ -400,8 +535,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       backgroundColor: Colors.black,
       body: WillPopScope(
         onWillPop: () async {
-          exitFullScreen();
-          return true;
+          _exitFullScreen();
+          return true; // Normal çıkışa izin ver
         },
         child: Stack(
           children: [
@@ -415,6 +550,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 child: IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.white),
                   onPressed: () {
+                    // Sayfadan çık
                     Navigator.of(context).pop();
                   },
                 ),
@@ -425,7 +561,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     );
   }
 
+  // Video kontrol butonları
   Widget _buildVideoControls() {
+    if (_videoPlayerController == null || 
+        !_videoPlayerController!.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+    
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -438,12 +580,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // İzlenme süresi
                   Text(
                     _formatDuration(_videoPlayerController!.value.position),
                     style: const TextStyle(color: Colors.white, fontSize: 14),
                   ),
-                  // Toplam süre
                   Text(
                     _formatDuration(_videoPlayerController!.value.duration),
                     style: const TextStyle(color: Colors.white, fontSize: 14),
@@ -451,7 +591,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 ],
               ),
             ),
-            const SizedBox(height: 10), // Süre göstergesi ile ilerleme çubuğu arasında boşluk
+            const SizedBox(height: 10),
             // İlerleme göstergesi
             VideoProgressIndicator(
               _videoPlayerController!,
@@ -462,7 +602,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 backgroundColor: Colors.blue,
               ),
             ),
-            const SizedBox(height: 10), // İlerleme göstergesi ile butonlar arasında boşluk
+            const SizedBox(height: 10),
+            // Kontrol butonları
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -470,13 +611,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 IconButton(
                   icon: const Icon(Icons.replay_10, color: Colors.white, size: 40),
                   onPressed: () {
-                    final currentPosition = _videoPlayerController!.value.position;
                     _videoPlayerController!.seekTo(
-                      Duration(seconds: currentPosition.inSeconds - 10),
+                      Duration(seconds: _videoPlayerController!.value.position.inSeconds - 10),
                     );
                   },
                 ),
-                const SizedBox(width: 20), // Butonlar arasında boşluk
+                const SizedBox(width: 20),
                 // Oynatma/Duraklatma butonu
                 IconButton(
                   icon: Icon(
@@ -494,22 +634,31 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                     });
                   },
                 ),
-                const SizedBox(width: 20), // Butonlar arasında boşluk
+                const SizedBox(width: 20),
                 // İleri sarma butonu
                 IconButton(
                   icon: const Icon(Icons.forward_10, color: Colors.white, size: 40),
                   onPressed: () {
-                    final currentPosition = _videoPlayerController!.value.position;
                     _videoPlayerController!.seekTo(
-                      Duration(seconds: currentPosition.inSeconds + 10),
+                      Duration(seconds: _videoPlayerController!.value.position.inSeconds + 10),
                     );
                   },
                 ),
-                const SizedBox(width: 20), // Butonlar arasında boşluk
+                const SizedBox(width: 20),
                 // Tam ekran butonu
                 IconButton(
                   icon: const Icon(Icons.fullscreen, color: Colors.white, size: 40),
-                  onPressed: toggleFullScreen,
+                  onPressed: () {
+                    setState(() {
+                      isFullScreen = !isFullScreen;
+                    });
+                    
+                    if (isFullScreen) {
+                      _enterFullScreen();
+                    } else {
+                      _exitFullScreen();
+                    }
+                  },
                 ),
               ],
             ),
@@ -519,6 +668,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     );
   }
 
+  // Süre formatı
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final hours = twoDigits(duration.inHours);
@@ -529,11 +679,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   @override
   void dispose() {
-    _exitFullScreen(); // Sayfa kapandığında normal moda dön
-    _youtubeController?.dispose();
-    _videoPlayerController?.removeListener(() {}); // Listener'ı kaldır
-    _videoPlayerController?.dispose();
+    // Son izleme kaydet
+    _saveWatchHistory();
+    
+    // Reklam temizle
+    _interstitialAd?.dispose();
+    
+    // Zamanlayıcıları iptal et
+    _watchHistoryTimer?.cancel();
     _hideControlsTimer?.cancel();
+    
+    // Video oynatıcıları temizle
+    _youtubeController?.dispose();
+    if (_videoPlayerController != null) {
+      _videoPlayerController!.pause();
+      _videoPlayerController!.dispose();
+    }
+    
+    _exitFullScreen();
     super.dispose();
   }
 }

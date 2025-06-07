@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:videoapp/models/auth_service.dart';
 import 'package:videoapp/models/video_model.dart';
 import 'package:videoapp/screens/privacy_policy_screen.dart';
 import 'package:videoapp/screens/request_box.dart';
@@ -8,6 +9,8 @@ import 'package:videoapp/models/firebase_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'package:videoapp/screens/sign_in_page.dart';
+import 'package:videoapp/screens/profile_page.dart'; // Yeni eklenen import
 
 class VideoListPage extends StatefulWidget {
   const VideoListPage({super.key});
@@ -103,8 +106,9 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
       _buildHomeScreen(),
       CategoryScreen(
         allSeries: seriesList,
-        categoryImages: const {}, // Eğer kategori resimleri varsa buraya ekleyebilirsiniz
+        categoryImages: const {}, 
       ),
+      const ProfilePage(), // Profil ekranını ekleyin
     ];
   }
 
@@ -199,6 +203,20 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                           );
                         },
                       ),
+                      // Çıkış yapma butonu
+                      ListTile(
+                        leading: const Icon(Icons.logout, color: Colors.white),
+                        title: const Text('Çıkış Yap', style: TextStyle(color: Colors.white)),
+                        onTap: () async {
+                          await AuthService().signOut();
+                          if (mounted) {
+                            Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute(builder: (_) => const SignInPage()),
+                              (route) => false,
+                            );
+                          }
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -254,8 +272,8 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
   ),
   bottomNavigationBar: Container(
     decoration: const BoxDecoration(
-      color: Colors.transparent, // Şeffaf siyah arka plan
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)), // Kenarları yuvarlat
+      color: Colors.transparent,
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     child: BottomNavigationBar(
       currentIndex: _selectedIndex,
@@ -276,15 +294,19 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
             icon: AnimatedIcons.home_menu,
             progress: _animationController,
           ),
-          label: 'Home',
+          label: 'Ana Sayfa',
         ),
         const BottomNavigationBarItem(
           icon: Icon(Icons.category),
           label: 'Kategoriler',
         ),
+        const BottomNavigationBarItem( // Yeni eklenen profil sekmesi
+          icon: Icon(Icons.person),
+          label: 'Profilim',
+        ),
       ],
-      backgroundColor: Colors.transparent, // Arka plan şeffaf
-      elevation: 0, // Gölgeyi kaldır
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       selectedItemColor: Colors.blue,
       unselectedItemColor: Colors.white.withOpacity(0.6),
     ),

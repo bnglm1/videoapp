@@ -27,6 +27,9 @@ dependencies:
   google_mobile_ads: ^5.3.1
   carousel_slider: ^5.0.0
   applovin_max: ^3.5.0  
+  lottie: ^3.3.1
+  share_plus: ^11.0.0
+  font_awesome_flutter: ^10.8.0
 
 dev_dependencies:
   flutter_test:
