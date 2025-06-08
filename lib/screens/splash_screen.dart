@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:videoapp/models/auth_service.dart';
-import 'package:videoapp/screens/video_list_page.dart';
+import 'package:videoapp/screens/sign_in_page.dart';
+import 'package:videoapp/screens/sign_up_page.dart'; // Import SignUpPage
+import 'package:videoapp/screens/video_list_page.dart'; // Import VideoListPage
+import 'package:package_info_plus/package_info_plus.dart'; // Import ekleyin
+import 'package:firebase_auth/firebase_auth.dart'; // Firebase Auth import edin
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -16,6 +20,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   final AuthService _authService = AuthService();
+  
+  // Sürüm bilgisi için değişken ekleyin
+  String _appVersion = 'v1.0.0'; // Varsayılan değer
 
   @override
   void initState() {
@@ -24,6 +31,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     // Ekranı dikey ve tam ekran moduna ayarla
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
+    
+    // Sürüm bilgisini yükle
+    _loadAppVersion();
     
     // Animasyon kontrolcüsü
     _animationController = AnimationController(
@@ -45,12 +55,49 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     });
   }
 
-  void _checkAuthState() {
-    if (mounted) {
-      // Direkt olarak VideoListPage'e yönlendir (auth işlemleri için)
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const VideoListPage()),
-      );
+  // Sürüm bilgisini yükleme fonksiyonu ekleyin
+  Future<void> _loadAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _appVersion = 'v${packageInfo.version}';
+        });
+      }
+    } catch (e) {
+      print("Sürüm bilgisi yüklenirken hata: $e");
+    }
+  }
+
+  Future<void> _checkAuthState() async {
+    try {
+      // Firebase'in hazır olmasını bekleme
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Mevcut bir oturum var mı?
+      final user = FirebaseAuth.instance.currentUser;
+      
+      if (user != null) {
+        print('Mevcut oturum bulundu: ${user.email}');
+        // Kullanıcı zaten giriş yapmış, ana sayfaya yönlendir
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const VideoListPage()),
+        );
+      } else {
+        print('Oturum bulunamadı, giriş sayfasına yönlendiriliyor');
+        // Oturum yok, giriş sayfasına yönlendir
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const SignInPage()),
+        );
+      }
+    } catch (e) {
+      print('Oturum kontrolünde hata: $e');
+      // Hata durumunda güvenli yönlendirme
+      if (mounted) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const SignInPage()),
+        );
+      }
     }
   }
 
@@ -123,9 +170,9 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   ),
                 ),
                 const SizedBox(height: 20),
-                // Versiyon
+                // Versiyon - şimdi dinamik değişkeni kullanıyor
                 Text(
-                  'v1.0.2',
+                  _appVersion, // Sabit değer yerine değişken kullanın
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.7),
                     fontSize: 14,

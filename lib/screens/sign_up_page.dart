@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:videoapp/models/auth_service.dart';
 import 'package:videoapp/screens/video_list_page.dart';
+import 'package:videoapp/screens/sign_in_page.dart';
 
 class SignUpPage extends StatefulWidget {
   const SignUpPage({Key? key}) : super(key: key);
@@ -101,12 +102,21 @@ class _SignUpPageState extends State<SignUpPage> {
                       const SizedBox(height: 20),
                       // Başlık
                       const Text(
-                        'Hesap Oluştur',
+                        'Playtoon\'a Hoş Geldiniz',
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Uygulamayı kullanmak için lütfen hesap oluşturun',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 30),
                       
@@ -114,6 +124,7 @@ class _SignUpPageState extends State<SignUpPage> {
                       TextFormField(
                         controller: _usernameController,
                         style: const TextStyle(color: Colors.white),
+                        cursorColor: Colors.blueAccent, // İmleç rengi mavi yapıldı
                         decoration: _inputDecoration(
                           'Kullanıcı Adı',
                           Icons.person,
@@ -132,6 +143,7 @@ class _SignUpPageState extends State<SignUpPage> {
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         style: const TextStyle(color: Colors.white),
+                        cursorColor: Colors.blueAccent, // İmleç rengi mavi yapıldı
                         decoration: _inputDecoration(
                           'Email',
                           Icons.email,
@@ -153,6 +165,7 @@ class _SignUpPageState extends State<SignUpPage> {
                         controller: _passwordController,
                         obscureText: _obscurePassword,
                         style: const TextStyle(color: Colors.white),
+                        cursorColor: Colors.blueAccent, // İmleç rengi mavi yapıldı
                         decoration: _inputDecoration(
                           'Şifre',
                           Icons.lock,
@@ -188,6 +201,7 @@ class _SignUpPageState extends State<SignUpPage> {
                         controller: _confirmPasswordController,
                         obscureText: _obscureConfirmPassword,
                         style: const TextStyle(color: Colors.white),
+                        cursorColor: Colors.blueAccent, // İmleç rengi mavi yapıldı
                         decoration: _inputDecoration(
                           'Şifreyi Onaylayın',
                           Icons.lock_outline,
@@ -246,6 +260,20 @@ class _SignUpPageState extends State<SignUpPage> {
                                     color: Colors.white,
                                   ),
                                 ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      
+                      // Zaten hesabınız var mı kısmı
+                      TextButton(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const SignInPage()),
+                          );
+                        },
+                        child: const Text(
+                          'Zaten bir hesabınız var mı? Giriş yapın',
+                          style: TextStyle(color: Colors.white),
                         ),
                       ),
                     ],

@@ -6,6 +6,9 @@ import 'package:videoapp/screens/video_player_page.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:math'; // Rastgele sayı üreteci için bu import satırını ekleyin
+import 'package:videoapp/utils/custom_snackbar.dart';
+import 'package:videoapp/screens/sign_in_page.dart'; // Yeni eklenen import
 
 class EpisodeDetailsPage extends StatefulWidget {
   final String videoUrl;
@@ -44,13 +47,21 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // Favori durumu
   bool _isFavorite = false;
   bool _isCheckingFavorite = true;
+  bool _isProcessing = false; // Yeni eklenen: İşlem durumu
 
+  // Mevcut sınıf değişkenlerine ek olarak:
+  int _addedViewCount = 0; // Yeni eklenen görüntüleme sayısını tutacak değişken
+  final Random _random = Random();
+  bool _hasIncrementedView = false;
+  
   @override
   void initState() {
     super.initState();
     _loadInterstitialAd();
     _loadBannerAd();
     _checkIfFavorite();
+    _saveToWatchHistory();
+    _incrementViewCounts(); // isim değişti, çoğul oldu
   }
 
   Future<void> _loadInterstitialAd() async {
@@ -114,14 +125,15 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     }
 
     try {
-      final videoId = widget.episodeId ?? 
+      // Aynı document ID oluşturma mantığını burada da kullanın
+      final String docId = widget.episodeId ?? 
           widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
       
       final doc = await _firestore
           .collection('users')
           .doc(_auth.currentUser!.uid)
           .collection('favorites')
-          .doc(videoId)
+          .doc(docId) // Burada da widget.episodeId yerine docId kullanın
           .get();
 
       setState(() {
@@ -139,61 +151,109 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // Favorilere ekle/kaldır
   Future<void> _toggleFavorite() async {
     if (_auth.currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Favori eklemek için giriş yapmalısınız')),
+      // Kullanıcı giriş yapmamışsa
+      CustomSnackbar.show(
+        context: context,
+        message: 'Favorilere eklemek için giriş yapmalısınız',
+        type: SnackbarType.info,
+        actionLabel: 'Giriş Yap',
+        onAction: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (context) => const SignInPage()),
+          );
+        },
       );
       return;
     }
 
     setState(() {
-      _isCheckingFavorite = true;
+      _isProcessing = true;
     });
 
     try {
-      final videoId = widget.episodeId ?? 
-          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
-      
-      final userFavRef = _firestore
-          .collection('users')
-          .doc(_auth.currentUser!.uid)
-          .collection('favorites')
-          .doc(videoId);
-
       if (_isFavorite) {
-        // Favorilerden kaldır
-        await userFavRef.delete();
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Favorilerden kaldırıldı')),
+        await _removeFavorite();
+        CustomSnackbar.show(
+          context: context,
+          message: 'Video favorilerden kaldırıldı',
+          type: SnackbarType.info,
         );
       } else {
-        // Favorilere ekle
-        await userFavRef.set({
-          'videoId': videoId,
-          'videoTitle': widget.episodeTitle,
+        await _addToFavorite();
+        CustomSnackbar.show(
+          context: context,
+          message: 'Video favorilere eklendi',
+          type: SnackbarType.success,
+        );
+      }
+      
+      await _checkIfFavorite();
+    } catch (e) {
+      print('Favori işleminde hata: $e');
+      CustomSnackbar.show(
+        context: context,
+        message: 'İşlem sırasında bir hata oluştu',
+        type: SnackbarType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+  // Favoriden silme metodu
+  Future<void> _removeFavorite() async {
+    try {
+      // Daha güvenli bir document ID oluşturma (episodeId null olabilir)
+      final String docId = widget.episodeId ?? 
+          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
+      
+      await _firestore
+        .collection('users')
+        .doc(_auth.currentUser!.uid)
+        .collection('favorites')
+        .doc(docId) // widget.episodeId yerine docId kullanın
+        .delete();
+    
+      setState(() {
+        _isFavorite = false;
+      });
+    } catch (e) {
+      print('Favoriden kaldırma hatası: $e');
+      rethrow; // Üst metotta yakalanacak
+    }
+  }
+
+  // Favoriye ekleme metodu
+  Future<void> _addToFavorite() async {
+    try {
+      // Daha güvenli bir document ID oluşturma (episodeId null olabilir)
+      final String docId = widget.episodeId ?? 
+          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
+    
+      await _firestore
+        .collection('users')
+        .doc(_auth.currentUser!.uid)
+        .collection('favorites')
+        .doc(docId) // widget.episodeId yerine docId kullanın
+        .set({
+          'videoId': docId, // widget.episodeId yerine docId kullanın
           'videoUrl': widget.videoUrl,
+          'videoTitle': widget.episodeTitle,
           'thumbnailUrl': widget.thumbnailUrl,
           'seriesId': widget.seriesId,
           'addedAt': FieldValue.serverTimestamp(),
         });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Favorilere eklendi')),
-        );
-      }
-
+    
       setState(() {
-        _isFavorite = !_isFavorite;
-        _isCheckingFavorite = false;
+        _isFavorite = true;
       });
     } catch (e) {
-      print("Favori işleminde hata: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Bir hata oluştu: ${e.toString()}')),
-      );
-      setState(() {
-        _isCheckingFavorite = false;
-      });
+      print('Favoriye ekleme hatası: $e');
+      rethrow; // Üst metotta yakalanacak
     }
   }
 
@@ -251,27 +311,91 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     );
   }
 
+  // _incrementViewCount metodunu güncelleyin
   Future<void> _incrementViewCount() async {
     try {
+      // Rastgele 5 ile 9 arasında bir artış miktarı belirle
+      final Random random = Random();
+      _addedViewCount = random.nextInt(5) + 5; // 5-9 arası rastgele sayı
+      
       // Daha güvenli bir document ID oluşturma
       final String docId = widget.episodeId ?? 
           widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
       
       final videoDoc = _firestore.collection('videos').doc(docId);
 
-      // Set yerine update kullanarak daha güvenli işlem
+      // Set yerine update kullanarak daha güvenli işlem - rastgele artış miktarını kullan
       await videoDoc.set(
         {
           'title': widget.episodeTitle,
           'url': widget.videoUrl,
-          'viewCount': FieldValue.increment(1),
+          'viewCount': FieldValue.increment(_addedViewCount), // Rastgele artış
           'lastViewed': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
       );
     } catch (e) {
       print("Görüntülenme sayısı artırılırken hata: $e");
-      // Hata durumunda işlemin devam etmesi için hata fırlatmıyoruz
+      _addedViewCount = 0; // Hata durumunda sıfırla
+    }
+  }
+
+  // İzleme sayaçlarını artırma metodu
+  Future<void> _incrementViewCounts() async {
+    if (_hasIncrementedView) return; // İşlem zaten yapıldıysa tekrar yapma
+    
+    try {
+      // Daha güvenli bir document ID oluşturma
+      final String docId = widget.episodeId ?? 
+          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
+      
+      final videoDoc = _firestore.collection('videos').doc(docId);
+      
+      // Rastgele 5 ile 9 arasında bir artış miktarı belirle
+      final int randomIncrement = _random.nextInt(5) + 5; // 5-9 arası
+      
+      // Firestore'da tek işlemle iki farklı sayaç güncellenir
+      await videoDoc.set(
+        {
+          'title': widget.episodeTitle,
+          'url': widget.videoUrl,
+          'actualViewCount': FieldValue.increment(1), // Gerçek izleme +1
+          'displayViewCount': FieldValue.increment(randomIncrement), // Göstermelik izleme +5-9
+          'lastViewed': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      
+      _hasIncrementedView = true;
+    } catch (e) {
+      print("Görüntülenme sayıları artırılırken hata: $e");
+    }
+  }
+  
+  // İzleme geçmişine kaydetme fonksiyonu
+  Future<void> _saveToWatchHistory() async {
+    if (_auth.currentUser == null) return;
+
+    try {
+      final videoId = widget.episodeId ?? 
+          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
+
+      final userHistoryRef = _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('watchHistory')
+          .doc(videoId);
+
+      await userHistoryRef.set({
+        'videoId': videoId,
+        'videoTitle': widget.episodeTitle,
+        'videoUrl': widget.videoUrl,
+        'thumbnailUrl': widget.thumbnailUrl,
+        'seriesId': widget.seriesId,
+        'watchedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      print("İzleme geçmişine kaydedilirken hata: $e");
     }
   }
 
@@ -749,18 +873,28 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                       child: FutureBuilder<DocumentSnapshot>(
                         future: _firestore.collection('videos').doc(widget.episodeId).get(),
                         builder: (context, snapshot) {
-                          int viewCount = 0;
+                          int displayViewCount = 0;
+                          
                           if (snapshot.hasData && snapshot.data!.exists) {
                             final data = snapshot.data!.data() as Map<String, dynamic>;
-                            viewCount = (data['viewCount'] as num?)?.toInt() ?? 0;
+                            // Kullanıcılara göstermelik sayacı gösteriyoruz
+                            displayViewCount = (data['displayViewCount'] as num?)?.toInt() ?? 0;
+                            
+                            // Eğer displayViewCount yoksa, eski viewCount'u kullan (geriye dönük uyumluluk için)
+                            if (displayViewCount == 0) {
+                              displayViewCount = (data['viewCount'] as num?)?.toInt() ?? 0;
+                            }
                           }
+                          
+                          // Görüntüleme sayısını daha okunabilir formata dönüştür
+                          String formattedViewCount = _formatNumber(displayViewCount);
                           
                           return Row(
                             children: [
                               const Icon(Icons.visibility, size: 16, color: Colors.blue),
                               const SizedBox(width: 4),
                               Text(
-                                "$viewCount görüntüleme",
+                                "$formattedViewCount görüntüleme",
                                 style: TextStyle(color: Colors.grey[400], fontSize: 14),
                               ),
                             ],
@@ -801,10 +935,15 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                           // İndirme butonu yerine favoriler butonu
                           Expanded(
                             child: _buildActionButtonNew(
-                              icon: _isFavorite ? Icons.favorite : Icons.favorite_border,
-                              label: _isFavorite ? 'Favorilerde' : 'Favorile',
-                              onTap: _isCheckingFavorite ? () {} : _toggleFavorite,
+                              icon: _isProcessing 
+                                ? null // İşlem sürerken ikon gösterme
+                                : (_isFavorite ? Icons.favorite : Icons.favorite_border),
+                              label: _isProcessing 
+                                ? 'İşleniyor...' 
+                                : (_isFavorite ? 'Favorilerde' : 'Favorile'),
+                              onTap: (_isCheckingFavorite || _isProcessing) ? null : _toggleFavorite, // İşlem sürerken devre dışı bırak
                               color: _isFavorite ? Colors.red : Colors.pink,
+                              isLoading: _isProcessing, // Yeni yükleme parametresi
                             ),
                           ),
                           // Dikey ayırıcı
@@ -897,28 +1036,57 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
   // Yeniden tasarlanmış eylem butonu
   Widget _buildActionButtonNew({
-    required IconData icon,
+    required IconData? icon,
     required String label,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
     required Color color,
+    bool isLoading = false, // Yeni parametre ekleyin
   }) {
     return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500),
-              textAlign: TextAlign.center,
-            ),
-          ],
+      onTap: onTap, // null olduğunda otomatik olarak devre dışı kalır
+      borderRadius: BorderRadius.circular(8),
+      child: Opacity(
+        opacity: onTap == null ? 0.5 : 1.0, // Devre dışı durumunda soluk görünüm
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 24,
+                width: 24,
+                child: isLoading
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(color),
+                      ),
+                    )
+                  : Icon(icon, color: color, size: 24),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  // Sayıları formatlayan yardımcı metot
+  String _formatNumber(int number) {
+    if (number < 1000) {
+      return number.toString();
+    } else if (number < 1000000) {
+      return '${(number / 1000).toStringAsFixed(1)}K';
+    } else {
+      return '${(number / 1000000).toStringAsFixed(1)}M';
+    }
   }
 }

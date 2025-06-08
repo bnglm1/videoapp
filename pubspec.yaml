@@ -2,7 +2,7 @@ name: videoapp
 description: A Flutter video player app using Firebase and Google Cloud Storage
 publish_to: 'none'
 
-version: 1.0.2+4
+version: 1.0.4+6
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

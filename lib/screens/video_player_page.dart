@@ -61,7 +61,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _detectVideoTypeWithoutLoading();
     
     // 2 saniye sonra yüklemeyi göster
-    Future.delayed(Duration(seconds: 2), () {
+    Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         setState(() {
           _isLoading = false; // Yükleme tamamlandı
@@ -515,7 +515,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   Widget build(BuildContext context) {
     // Eğer hala yükleniyor durumdaysa, yükleme ekranı göster
     if (_isLoading) {
-      return Scaffold(
+      return const Scaffold(
         backgroundColor: Colors.black,
         body: Center(
           child: Column(

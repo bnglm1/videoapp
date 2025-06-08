@@ -10,7 +10,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:videoapp/screens/sign_in_page.dart';
-import 'package:videoapp/screens/profile_page.dart'; // Yeni eklenen import
+import 'package:videoapp/screens/profile_page.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class VideoListPage extends StatefulWidget {
   const VideoListPage({super.key});
@@ -24,9 +25,15 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
   List<Series> seriesList = [];
   bool isLoading = true;
   Map<String, List<Series>> groupedSeriesList = {};
-  int _selectedIndex = 0; // Seçili sekmeyi takip etmek için
-
-  // 📌 Banner Reklam için değişken
+  int _selectedIndex = 0;
+  
+  // Arama özelliği için yeni değişkenler
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
+  List<Series> _searchResults = [];
+  bool _showSearchResults = false;
+  
+  // Banner reklam için değişken
   late BannerAd _bannerAd;
   bool _isBannerAdLoaded = false;
 
@@ -36,9 +43,12 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
   void initState() {
     super.initState();
     _loadSeries();
-    _loadBannerAd(); // Banner reklamı yükle
+    _loadBannerAd();
+    _loadAppVersion();
+    
+    // Arama kontrolcüsüne dinleyici ekle
+    _searchController.addListener(_onSearchChanged);
 
-    // Initialize animation controller
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -47,12 +57,54 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
 
   @override
   void dispose() {
-    _bannerAd.dispose(); // Reklamı temizle
-    _animationController.dispose(); // Dispose animation controller
+    _bannerAd.dispose();
+    _searchController.removeListener(_onSearchChanged);
+    _searchController.dispose();
+    _animationController.dispose();
     super.dispose();
   }
+  
+  // Arama değeri değiştiğinde çağrılır
+  void _onSearchChanged() {
+    _performSearch(_searchController.text);
+  }
+  
+  // Arama işlemini gerçekleştirir
+  void _performSearch(String query) {
+    if (query.isEmpty) {
+      setState(() {
+        _showSearchResults = false;
+        _searchResults = [];
+      });
+      return;
+    }
+    
+    final queryLower = query.toLowerCase();
+    final results = seriesList.where((series) {
+      return series.title.toLowerCase().contains(queryLower);
+    }).toList();
+    
+    setState(() {
+      _searchResults = results;
+      _showSearchResults = true;
+    });
+  }
+  
+  // Arama modunu aç/kapat
+  void _toggleSearch() {
+    setState(() {
+      _isSearching = !_isSearching;
+      if (!_isSearching) {
+        _searchController.clear();
+        _showSearchResults = false;
+      } else {
+        // Arama kutusu açıldığında klavye odağını kur
+        FocusScope.of(context).requestFocus();
+      }
+    });
+  }
 
-  // 📌 Banner Reklamı Yükleme
+  // Banner Reklamı Yükleme
   void _loadBannerAd() {
     _bannerAd = BannerAd(
       adUnitId: 'cca-app-pub-7690250755006392/7705897910', 
@@ -91,13 +143,20 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
 
       setState(() {
         seriesList = allSeries;
-        groupedSeriesList = groupedSeries; // Gruplandırılmış seriler
+        groupedSeriesList = groupedSeries;
         isLoading = false;
       });
     } catch (e) {
       print("Veri alınırken hata oluştu: $e");
       setState(() => isLoading = false);
     }
+  }
+
+  Future<void> _loadAppVersion() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    setState(() {
+      _appVersion = 'v${packageInfo.version}';
+    });
   }
 
   // Ekranlar
@@ -108,219 +167,359 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
         allSeries: seriesList,
         categoryImages: const {}, 
       ),
-      const ProfilePage(), // Profil ekranını ekleyin
+      const ProfilePage(),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-  backgroundColor: Colors.grey[900], // Ana arka plan rengi
-  appBar: AppBar(
-    title: const Text(
-      'Playtoon',
-      style: TextStyle(
-        color: Colors.white,
-        fontSize: 24.0,
-        fontWeight: FontWeight.bold,
-      ),
-    ),
-    centerTitle: true,
-    backgroundColor: Colors.transparent, // AppBar arka planı şeffaf
-    elevation: 0, // AppBar gölgesini kaldır
-    leading: Builder(
-      builder: (context) {
-        return IconButton(
-          icon: const Icon(Icons.menu, color: Colors.white), // Menü simgesi
-          onPressed: () {
-            Scaffold.of(context).openDrawer(); // Drawer'ı aç
+      backgroundColor: Colors.grey[900],
+      appBar: AppBar(
+        title: _isSearching 
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: 'Dizi/Film ara...',
+                  hintStyle: TextStyle(color: Colors.white70),
+                  border: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                ),
+                cursorColor: Colors.white,
+                onChanged: _performSearch,
+              )
+            : const Text(
+                'Playtoon',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24.0,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+        centerTitle: true,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: Builder(
+          builder: (context) {
+            return IconButton(
+              icon: const Icon(Icons.menu, color: Colors.white),
+              onPressed: () {
+                Scaffold.of(context).openDrawer();
+              },
+            );
           },
-        );
-      },
-    ),
-  ),
-  drawer: ClipRRect(
-    borderRadius: const BorderRadius.only(
-      topRight: Radius.circular(30),
-      bottomRight: Radius.circular(30),
-    ),
-    child: SizedBox(
-      width: MediaQuery.of(context).size.width * 0.55, // Ekranın %55'i kadar genişlik
-      child: Drawer(
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Colors.blueAccent.withOpacity(0.9),
-                Colors.black.withOpacity(0.9)
-              ],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
+        ),
+        actions: [
+          // Arama ikonu ekle
+          IconButton(
+            icon: Icon(
+              _isSearching ? Icons.close : Icons.search,
+              color: Colors.white,
             ),
+            onPressed: _toggleSearch,
           ),
-          child: SafeArea(
-            child: Column(
-              children: [
-                Expanded(
-                  child: ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      const DrawerHeader(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Colors.blue, Colors.grey],
+        ],
+      ),
+      drawer: ClipRRect(
+        borderRadius: const BorderRadius.only(
+          topRight: Radius.circular(30),
+          bottomRight: Radius.circular(30),
+        ),
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.55,
+          child: Drawer(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.blueAccent.withOpacity(0.9),
+                    Colors.black.withOpacity(0.9)
+                  ],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: ListView(
+                        padding: EdgeInsets.zero,
+                        children: [
+                          const DrawerHeader(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Colors.blue, Colors.grey],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: Text(
+                              'Menü',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.privacy_tip, color: Colors.white),
+                            title: const Text('Gizlilik Politikası', style: TextStyle(color: Colors.white)),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (context) => const PrivacyPolicyPage()),
+                              );
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.feedback, color: Colors.white),
+                            title: const Text('İstek Kutusu', style: TextStyle(color: Colors.white)),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (context) => const RequestBoxPage()),
+                              );
+                            },
+                          ),
+                          // Çıkış yapma butonu
+                          ListTile(
+                            leading: const Icon(Icons.logout, color: Colors.white),
+                            title: const Text('Çıkış Yap', style: TextStyle(color: Colors.white)),
+                            onTap: () async {
+                              await AuthService().signOut();
+                              if (mounted) {
+                                Navigator.of(context).pushAndRemoveUntil(
+                                  MaterialPageRoute(builder: (_) => const SignInPage()),
+                                  (route) => false,
+                                );
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Version text at bottom
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        bottom: 32.0,
+                        left: 16.0,
+                        right: 16.0,
+                      ),
+                      child: ShaderMask(
+                        shaderCallback: (Rect bounds) {
+                          return LinearGradient(
+                            colors: [
+                              Colors.white.withOpacity(0.7),
+                              Colors.blue.withOpacity(0.5),
+                            ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
-                          ),
-                        ),
+                          ).createShader(bounds);
+                        },
                         child: Text(
-                          'Menü',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
+                          _appVersion,
+                          style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w400,
+                            letterSpacing: 1.2,
                           ),
+                          textAlign: TextAlign.center,
                         ),
                       ),
-                      ListTile(
-                        leading: const Icon(Icons.privacy_tip, color: Colors.white),
-                        title: const Text('Gizlilik Politikası', style: TextStyle(color: Colors.white)),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const PrivacyPolicyPage()),
-                          );
-                        },
-                      ),
-                      ListTile(
-                        leading: const Icon(Icons.feedback, color: Colors.white),
-                        title: const Text('İstek Kutusu', style: TextStyle(color: Colors.white)),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => const RequestBoxPage()),
-                          );
-                        },
-                      ),
-                      // Çıkış yapma butonu
-                      ListTile(
-                        leading: const Icon(Icons.logout, color: Colors.white),
-                        title: const Text('Çıkış Yap', style: TextStyle(color: Colors.white)),
-                        onTap: () async {
-                          await AuthService().signOut();
-                          if (mounted) {
-                            Navigator.of(context).pushAndRemoveUntil(
-                              MaterialPageRoute(builder: (_) => const SignInPage()),
-                              (route) => false,
-                            );
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                // Version text at bottom
-                Padding(
-                  padding: const EdgeInsets.only(
-                    bottom: 32.0,
-                    left: 16.0,
-                    right: 16.0,
-                  ),
-                  child: ShaderMask(
-                    shaderCallback: (Rect bounds) {
-                      return LinearGradient(
-                        colors: [
-                          Colors.white.withOpacity(0.7),
-                          Colors.blue.withOpacity(0.5),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ).createShader(bounds);
-                    },
-                    child: const Text(
-                      'v1.0.2',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16, // Boyut artırıldı
-                        fontWeight: FontWeight.w400, // Font kalınlığı artırıldı
-                        letterSpacing: 1.2, // Harfler arası boşluk eklendi
-                      ),
-                      textAlign: TextAlign.center,
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
       ),
-    ),
-  ),
-  body: Column(
-    children: [
-      Expanded(
-        child: isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : IndexedStack(
-                index: _selectedIndex,
-                children: _screens(),
+      body: Column(
+        children: [
+          // Arama sonuçları gösteriliyorsa
+          if (_showSearchResults && _searchResults.isNotEmpty)
+            Expanded(
+              child: _buildSearchResults(),
+            ),
+          if (_showSearchResults && _searchResults.isEmpty)
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.search_off, size: 80, color: Colors.grey[600]),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Sonuç bulunamadı',
+                      style: TextStyle(
+                        color: Colors.grey[400],
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Farklı bir arama terimi deneyin',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+            ),
+          // Normal içerik
+          if (!_showSearchResults)
+            Expanded(
+              child: isLoading
+                  ? const Center(child: CircularProgressIndicator(color: Colors.blue)) // Renk değiştirildi
+                  : IndexedStack(
+                      index: _selectedIndex,
+                      children: _screens(),
+                    ),
+            ),
+        ],
       ),
-      // 📌 Banner Reklamı Göster
-    ],
-  ),
-  bottomNavigationBar: Container(
-    decoration: const BoxDecoration(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    child: BottomNavigationBar(
-      currentIndex: _selectedIndex,
-      onTap: (index) {
-        setState(() {
-          _selectedIndex = index;
-          // Animate icon when tab changes
-          if (index == 0) {
-            _animationController.forward();
-          } else {
-            _animationController.reverse();
-          }
-        });
-      },
-      items: [
-        BottomNavigationBarItem(
-          icon: AnimatedIcon(
-            icon: AnimatedIcons.home_menu,
-            progress: _animationController,
-          ),
-          label: 'Ana Sayfa',
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.category),
-          label: 'Kategoriler',
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: (index) {
+            setState(() {
+              _selectedIndex = index;
+              // Arama modundayken herhangi bir sekmeye geçiş yapılırsa arama modunu kapat
+              if (_isSearching) {
+                _isSearching = false;
+                _showSearchResults = false;
+              }
+              if (index == 0) {
+                _animationController.forward();
+              } else {
+                _animationController.reverse();
+              }
+            });
+          },
+          items: [
+            BottomNavigationBarItem(
+              icon: AnimatedIcon(
+                icon: AnimatedIcons.home_menu,
+                progress: _animationController,
+              ),
+              label: 'Ana Sayfa',
+            ),
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.category),
+              label: 'Kategoriler',
+            ),
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.person),
+              label: 'Profilim',
+            ),
+          ],
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          selectedItemColor: Colors.blue,
+          unselectedItemColor: Colors.white.withOpacity(0.6),
         ),
-        const BottomNavigationBarItem( // Yeni eklenen profil sekmesi
-          icon: Icon(Icons.person),
-          label: 'Profilim',
-        ),
-      ],
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      selectedItemColor: Colors.blue,
-      unselectedItemColor: Colors.white.withOpacity(0.6),
-    ),
-  ),
-);
+      ),
+    );
+  }
+  
+  // Arama sonuçlarını göster
+  Widget _buildSearchResults() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      child: ListView.builder(
+        itemCount: _searchResults.length,
+        itemBuilder: (context, index) {
+          final series = _searchResults[index];
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(15),
+              color: Colors.grey[850],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 5,
+                  offset: const Offset(0, 3),
+                )
+              ],
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              leading: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: CachedNetworkImage(
+                  imageUrl: series.cover,
+                  width: 60,
+                  height: 80,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: Colors.grey[800],
+                    child: const Center(child: CircularProgressIndicator(color: Colors.blue)), // Renk eklendi
+                  ),
+                  errorWidget: (context, url, error) => const Icon(Icons.error),
+                ),
+              ),
+              title: Text(
+                series.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              subtitle: Text(
+                series.description.length > 70 
+                    ? '${series.description.substring(0, 70)}...' 
+                    : series.description,
+                style: TextStyle(
+                  color: Colors.grey[400],
+                  fontSize: 12,
+                ),
+              ),
+              // Sağ tarafta küçük bir 'aç' ikonu
+              trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+              onTap: () {
+                // Arama modunu kapat ve seçilen serinin sezon sayfasına git
+                setState(() {
+                  _isSearching = false;
+                  _showSearchResults = false;
+                  _searchController.clear();
+                });
+                
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => SeasonListPage(series),
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
   }
 
-  @override
   Widget _buildHomeScreen() {
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildFeaturedContent(), // ✅ Güncellenmiş Slider çağrıldı!
+          _buildFeaturedContent(),
           const SizedBox(height: 16.0),
           if (groupedSeriesList["Önerilenler"]!.isNotEmpty) ...[
             _buildSectionTitle("Önerilenler"),
@@ -460,7 +659,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                         width: double.infinity,
                         placeholder: (context, url) => Container(
                           color: Colors.grey[800],
-                          child: const Center(child: CircularProgressIndicator()),
+                          child: const Center(child: CircularProgressIndicator(color: Colors.blue)), // Renk eklendi
                         ),
                         errorWidget: (context, url, error) => const Icon(Icons.error),
                       ),
@@ -486,3 +685,4 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
     );
   }
 }
+String _appVersion = 'v1.0.0'; // Default value

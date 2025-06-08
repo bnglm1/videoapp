@@ -152,8 +152,8 @@ class _SeasonListPageState extends State<SeasonListPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 12.0),
+                        const Padding(
+                          padding: EdgeInsets.only(left: 16.0, right: 16.0, bottom: 12.0),
                           child: Text(
                             'Sezonlar',
                             style: TextStyle(
@@ -166,7 +166,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                         SizedBox(
                           height: 50,
                           child: ListView.builder(
-                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
                             scrollDirection: Axis.horizontal,
                             itemCount: widget.series.seasons.length,
                             itemBuilder: (context, index) {
@@ -180,7 +180,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                     });
                                   },
                                   child: Container(
-                                    padding: EdgeInsets.symmetric(horizontal: 16),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
                                     alignment: Alignment.center,
                                     decoration: BoxDecoration(
                                       color: isSelected ? Colors.blueAccent : Colors.grey[850],
@@ -278,7 +278,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                             padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
                                             child: Text(
                                               'Bölüm ${episodeIndex + 1}',
-                                              style: TextStyle(
+                                              style: const TextStyle(
                                                 color: Colors.white,
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.bold,
@@ -324,7 +324,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                   ),
                                   
                                   // Oynat butonu
-                                  Icon(
+                                  const Icon(
                                     Icons.play_circle_fill,
                                     color: Colors.blue,
                                     size: 36,

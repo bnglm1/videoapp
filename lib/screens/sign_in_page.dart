@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:videoapp/models/auth_service.dart';
 import 'package:videoapp/screens/video_list_page.dart';
 import 'package:videoapp/screens/sign_up_page.dart';
+import 'package:videoapp/utils/custom_snackbar.dart';
 
 class SignInPage extends StatefulWidget {
   const SignInPage({Key? key}) : super(key: key);
-
+  
   @override
   State<SignInPage> createState() => _SignInPageState();
 }
@@ -25,6 +26,29 @@ class _SignInPageState extends State<SignInPage> {
     super.dispose();
   }
 
+  // Hata mesajlarını kullanıcı dostu hale getiren fonksiyon buraya eklenir
+  String _getErrorMessage(String errorCode) {
+    // Firebase hata kodu mesajdan ayıklanır
+    if (errorCode.contains('user-not-found')) {
+      return 'Bu e-posta adresine kayıtlı bir hesap bulamadık. Kayıt olmak ister misiniz?';
+    } else if (errorCode.contains('wrong-password')) {
+      return 'Girdiğiniz şifre doğru değil. Şifrenizi hatırlamıyorsanız sıfırlama yapabilirsiniz.';
+    } else if (errorCode.contains('invalid-email')) {
+      return 'E-posta adresi geçerli bir formatta değil. Lütfen kontrol ediniz.';
+    } else if (errorCode.contains('user-disabled')) {
+      return 'Hesabınız askıya alınmış. Destek ekibiyle iletişime geçebilirsiniz.';
+    } else if (errorCode.contains('too-many-requests')) {
+      return 'Çok fazla giriş denemesi nedeniyle hesabınıza erişim geçici olarak kısıtlandı. Lütfen daha sonra tekrar deneyin.';
+    } else if (errorCode.contains('network-request-failed')) {
+      return 'İnternet bağlantınızı kontrol edin veya daha sonra tekrar deneyin.';
+    } else if (errorCode.contains('account-exists-with-different-credential')) {
+      return 'Bu e-posta adresi başka bir yöntemle kayıtlı. Farklı bir giriş yöntemi kullanmayı deneyin.';
+    } else {
+      return 'Giriş yapılamadı. Lütfen bilgilerinizi kontrol edip tekrar deneyin.';
+    }
+  }
+
+  // _signIn metodunu güncelleyin
   Future<void> _signIn() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -33,24 +57,35 @@ class _SignInPageState extends State<SignInPage> {
     });
 
     try {
-      final success = await _authService.signInWithEmail(
+      // Güncellenmiş metodu kullan - UserCredential veya null döner
+      final signInSuccess = await _authService.signInWithEmail(
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
       
-      if (mounted && success) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const VideoListPage()),
-        );
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Giriş başarısız oldu, lütfen tekrar deneyin')),
-        );
+      if (mounted) {
+        if (signInSuccess == true) {
+          // Başarılı giriş - ana ekrana git
+          print('Başarılı giriş');
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const VideoListPage()),
+          );
+        } else {
+          // Başarısız giriş - hata göster
+          print('Giriş başarısız: Kullanıcı bilgileri geçersiz');
+          CustomSnackbar.show(
+            context: context,
+            message: 'E-posta veya şifre yanlış. Lütfen tekrar deneyin.',
+            type: SnackbarType.error,
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+        CustomSnackbar.show(
+          context: context,
+          message: _getErrorMessage(e.toString()),
+          type: SnackbarType.error,
         );
       }
     } finally {
@@ -103,9 +138,15 @@ class _SignInPageState extends State<SignInPage> {
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
                         style: const TextStyle(color: Colors.white),
+                        cursorColor: Colors.blueAccent, // İmleç rengi mavi yapıldı
                         decoration: InputDecoration(
                           labelText: 'Email',
                           labelStyle: const TextStyle(color: Colors.white70),
+                          errorStyle: const TextStyle(
+                            color: Colors.orange, // Kırmızı yerine turuncu daha okunaklı
+                            fontSize: 13.0,
+                            fontWeight: FontWeight.w500,
+                          ),
                           prefixIcon: const Icon(Icons.email, color: Colors.white70),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -115,12 +156,22 @@ class _SignInPageState extends State<SignInPage> {
                             borderRadius: BorderRadius.circular(8),
                             borderSide: const BorderSide(color: Colors.blueAccent),
                           ),
+                          errorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Colors.redAccent),
+                          ),
+                          focusedErrorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Colors.redAccent),
+                          ),
                           filled: true,
                           fillColor: Colors.black45,
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Lütfen email adresinizi girin';
+                            return 'Lütfen e-posta adresinizi giriniz';
+                          } else if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                            return 'Geçerli bir e-posta adresi giriniz (örn: adi@domain.com)';
                           }
                           return null;
                         },
@@ -132,9 +183,15 @@ class _SignInPageState extends State<SignInPage> {
                         controller: _passwordController,
                         obscureText: true,
                         style: const TextStyle(color: Colors.white),
+                        cursorColor: Colors.blueAccent, // İmleç rengi mavi yapıldı
                         decoration: InputDecoration(
                           labelText: 'Şifre',
                           labelStyle: const TextStyle(color: Colors.white70),
+                          errorStyle: const TextStyle(
+                            color: Colors.orange, // Kırmızı yerine turuncu daha okunaklı
+                            fontSize: 13.0,
+                            fontWeight: FontWeight.w500,
+                          ),
                           prefixIcon: const Icon(Icons.lock, color: Colors.white70),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -149,7 +206,9 @@ class _SignInPageState extends State<SignInPage> {
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Lütfen şifrenizi girin';
+                            return 'Şifrenizi giriniz';
+                          } else if (value.length < 6) {
+                            return 'Şifreniz en az 6 karakter olmalıdır';
                           }
                           return null;
                         },
@@ -163,11 +222,23 @@ class _SignInPageState extends State<SignInPage> {
                           onPressed: _isLoading ? null : _signIn,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blueAccent,
+                            foregroundColor: Colors.white, // Metin rengini açıkça belirt
                             padding: const EdgeInsets.symmetric(vertical: 16),
+                            disabledBackgroundColor: Colors.blueAccent.withOpacity(0.6), // Devre dışı renk
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8), // Butonun kenarlarını yuvarla
+                            ),
                           ),
                           child: _isLoading
-                              ? const CircularProgressIndicator(color: Colors.white)
-                              : const Text('Giriş Yap', style: TextStyle(fontSize: 16)),
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20, 
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+                                )
+                              : const Text(
+                                  'Giriş Yap', 
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                ),
                         ),
                       ),
                       

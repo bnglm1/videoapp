@@ -25,16 +25,16 @@ void main() async {
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent, // Durum çubuğu şeffaf
       statusBarIconBrightness: Brightness.light, // Durum çubuğu simgeleri beyaz
-      systemNavigationBarColor: Colors.black, // Gezinti çubuğu rengi
       systemNavigationBarIconBrightness: Brightness.light, // Gezinti çubuğu simgeleri beyaz
     ),
   );
-  
+
+  // Uygulamayı başlat
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -42,25 +42,19 @@ class MyApp extends StatelessWidget {
       title: 'Playtoon',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: Colors.black,
-        bottomSheetTheme: BottomSheetThemeData(
-          backgroundColor: Colors.grey[900],
-          modalBackgroundColor: Colors.grey[900],
-          shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          // Aşağıdaki özellikle Bottom Sheet daha yukarıda başlar
-          constraints: const BoxConstraints(
-            minWidth: double.infinity,
-          ),
-          clipBehavior: Clip.antiAlias,
-          elevation: 16.0,
+        primaryColor: Colors.blueAccent,
+        colorScheme: ColorScheme.dark(
+          primary: Colors.blueAccent,
+          secondary: Colors.blueAccent,
+        ),
+        // Metin seçimi teması - imlec ve seçim balonları rengi
+        textSelectionTheme: const TextSelectionThemeData(
+          cursorColor: Colors.blueAccent, // İmleç rengi
+          selectionHandleColor: Colors.blueAccent, // İmleç uçlarındaki balonlar
+          selectionColor: Colors.blueAccent, // Metin seçim rengi (transparanlık otomatik)
         ),
       ),
-      home: const SplashScreen(),  
+      home: const SplashScreen(),
     );
   }
 }

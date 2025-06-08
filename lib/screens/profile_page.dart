@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:videoapp/screens/episode_detail_screen.dart';
+import 'package:videoapp/utils/custom_snackbar.dart'; // Özel Snackbar için import
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -509,24 +510,103 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
   // Favoriyi sil
   Future<void> _removeFavorite(String videoId) async {
     try {
-      // Silme işlemi için onay al
+      // Silme işlemi için daha modern bir onay diyaloğu göster
       bool confirmed = await showDialog(
         context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: Colors.grey[850],
-          title: const Text('Favorilerden Kaldır', style: TextStyle(color: Colors.white)),
-          content: const Text('Bu video favorilerinizden kaldırılacak. Emin misiniz?', 
-            style: TextStyle(color: Colors.white70)),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('İptal'),
+        builder: (context) => Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.grey[900],
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 10,
+                  spreadRadius: 1,
+                ),
+              ],
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Kaldır', style: TextStyle(color: Colors.red)),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // İkon ve başlık
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                    size: 40,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                
+                // Başlık
+                const Text(
+                  'Favorilerden Kaldır',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // İçerik yazısı
+                const Text(
+                  'Bu video favorilerinizden kaldırılacak. Bu işlem geri alınamaz.',
+                  style: TextStyle(color: Colors.white70),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                
+                // Butonlar - yatay düzen
+                Row(
+                  children: [
+                    // İptal butonu
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.grey[800],
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('İptal'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    
+                    // Kaldır butonu
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () => Navigator.pop(context, true),
+                        child: const Text('Kaldır'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ) ?? false;
 
@@ -539,15 +619,18 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
           .doc(videoId)
           .delete();
 
-      // setState artık gerekli değil - stream otomatik güncelliyor
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Video favorilerinizden kaldırıldı')),
+      // CustomSnackbar kullanımı
+      CustomSnackbar.show(
+        context: context,
+        message: 'Video favorilerinizden kaldırıldı',
+        type: SnackbarType.info,
       );
     } catch (e) {
       print('Favori silinirken hata: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Favori kaldırılırken bir hata oluştu')),
+      CustomSnackbar.show(
+        context: context,
+        message: 'Favori kaldırılırken bir hata oluştu',
+        type: SnackbarType.error,
       );
     }
   }
@@ -789,8 +872,11 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
       
       // setState artık gerekli değil - stream otomatik güncelliyor
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('İzleme geçmişinden kaldırıldı')),
+      // CustomSnackbar ile bildirim
+      CustomSnackbar.show(
+        context: context,
+        message: 'İzleme geçmişinden kaldırıldı',
+        type: SnackbarType.info,
       );
     } catch (e) {
       print('Geçmiş silme hatası: $e');
@@ -845,8 +931,11 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
       
       // setState artık gerekli değil - stream otomatik güncelliyor
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tüm izleme geçmişi temizlendi')),
+      // CustomSnackbar ile bildirim
+      CustomSnackbar.show(
+        context: context,
+        message: 'Tüm izleme geçmişi temizlendi',
+        type: SnackbarType.info,
       );
     } catch (e) {
       print('Tüm geçmişi silme hatası: $e');
