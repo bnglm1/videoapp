@@ -131,6 +131,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
         "Önerilenler": [],
         "AnimetoonTr İçerikleri": [],
         "Yeni Eklenenler": [],
+        "Filmler": [], // Yeni eklenen kategori
       };
 
       for (var series in allSeries) {
@@ -532,6 +533,11 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
           if (groupedSeriesList["Yeni Eklenenler"]!.isNotEmpty) ...[
             _buildSectionTitle("Yeni Eklenenler"),
             _buildHorizontalList(groupedSeriesList["Yeni Eklenenler"]!),
+          ],
+          // Yeni eklenen Filmler kategorisi
+          if (groupedSeriesList["Filmler"]!.isNotEmpty) ...[
+            _buildSectionTitle("Filmler"),
+            _buildHorizontalList(groupedSeriesList["Filmler"]!),
           ],
           const SizedBox(height: 20.0),
         ],

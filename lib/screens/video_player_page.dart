@@ -7,7 +7,6 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:video_player/video_player.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 class VideoPlayerPage extends StatefulWidget {
   final String videoUrl;

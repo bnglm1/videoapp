@@ -4,7 +4,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:videoapp/models/auth_service.dart';
 import 'package:videoapp/screens/sign_in_page.dart';
-import 'package:videoapp/screens/sign_up_page.dart'; // Import SignUpPage
+// Import SignUpPage
 import 'package:videoapp/screens/video_list_page.dart'; // Import VideoListPage
 import 'package:package_info_plus/package_info_plus.dart'; // Import ekleyin
 import 'package:firebase_auth/firebase_auth.dart'; // Firebase Auth import edin
