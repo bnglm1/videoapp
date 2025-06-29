@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:videoapp/utils/custom_snackbar.dart';
 
 class RequestBoxPage extends StatefulWidget {
   const RequestBoxPage({super.key});
@@ -9,46 +11,67 @@ class RequestBoxPage extends StatefulWidget {
 }
 
 class _RequestBoxPageState extends State<RequestBoxPage> {
-  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _requestController = TextEditingController();
+  bool _isSubmitting = false;
 
   void _sendRequest() async {
-    final name = _nameController.text.trim();
     final request = _requestController.text.trim();
 
-    if (name.isEmpty || request.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Lütfen tüm alanları doldurun."),
-          backgroundColor: Colors.red,
-        ),
+    if (request.isEmpty) {
+      CustomSnackbar.show(
+        context: context,
+        message: "Lütfen istek/öneri alanını doldurun",
+        type: SnackbarType.warning,
       );
       return;
     }
 
+    setState(() {
+      _isSubmitting = true;
+    });
+
     try {
+      // Mevcut kullanıcıyı al
+      final user = FirebaseAuth.instance.currentUser;
+      
+      if (user == null) {
+        CustomSnackbar.show(
+          context: context,
+          message: "Öneri göndermek için giriş yapmalısınız",
+          type: SnackbarType.error,
+        );
+        setState(() {
+          _isSubmitting = false;
+        });
+        return;
+      }
+
+      // Kullanıcı bilgilerini ve isteği Firestore'a kaydet
       await FirebaseFirestore.instance.collection('requests').add({
-        'name': name,
+        'userId': user.uid,
+        'userEmail': user.email,
+        'displayName': user.displayName ?? 'İsimsiz Kullanıcı',
         'request': request,
         'timestamp': FieldValue.serverTimestamp(),
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("İsteğiniz başarıyla gönderildi."),
-          backgroundColor: Colors.green,
-        ),
+      CustomSnackbar.show(
+        context: context,
+        message: "İsteğiniz başarıyla gönderildi",
+        type: SnackbarType.success,
       );
 
-      _nameController.clear();
       _requestController.clear();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("İstek gönderilirken bir hata oluştu."),
-          backgroundColor: Colors.red,
-        ),
+      CustomSnackbar.show(
+        context: context,
+        message: "İstek gönderilirken bir hata oluştu",
+        type: SnackbarType.error,
       );
+    } finally {
+      setState(() {
+        _isSubmitting = false;
+      });
     }
   }
 
@@ -56,7 +79,10 @@ class _RequestBoxPageState extends State<RequestBoxPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("İstek Kutusu"),
+        title: const Text(
+          "İstek Kutusu",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: Colors.blueAccent,
         elevation: 0,
       ),
@@ -77,11 +103,31 @@ class _RequestBoxPageState extends State<RequestBoxPage> {
                 children: [
                   const Text(
                     "Görüşlerinizi Bizimle Paylaşın!",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: TextStyle(
+                      fontSize: 24, 
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black54,
+                          blurRadius: 2,
+                          offset: Offset(1, 1),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "İzlemek istediğiniz içerikleri veya önerilerinizi buradan iletebilirsiniz",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16, 
+                      color: Colors.white70,
+                    ),
+                  ),
+                  const SizedBox(height: 30),
 
-                  // Kart ile Giriş Alanları
+                  // Kart ile İstek Alanı
                   Card(
                     elevation: 8,
                     shape: RoundedRectangleBorder(
@@ -93,46 +139,74 @@ class _RequestBoxPageState extends State<RequestBoxPage> {
                       child: Column(
                         children: [
                           TextField(
-                            controller: _nameController,
-                            decoration: InputDecoration(
-                              labelText: "Adınız",
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                              filled: true,
-                              fillColor: Colors.white,
-                              prefixIcon: const Icon(Icons.person),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          TextField(
                             controller: _requestController,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: Colors.black87,
+                              fontWeight: FontWeight.w500,
+                            ),
                             decoration: InputDecoration(
                               labelText: "İstek / Öneri",
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                              labelStyle: const TextStyle(
+                                color: Colors.blueAccent,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(color: Colors.blueAccent, width: 2),
+                              ),
                               filled: true,
                               fillColor: Colors.white,
-                              prefixIcon: const Icon(Icons.edit),
+                              prefixIcon: const Icon(
+                                Icons.message,
+                                color: Colors.blueAccent,
+                              ),
+                              hintText: "İzlemek istediğiniz içerikleri veya önerilerinizi yazın",
+                              hintStyle: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 14,
+                              ),
                             ),
-                            maxLines: 3,
+                            maxLines: 5,
+                            minLines: 3,
                           ),
                         ],
                       ),
                     ),
                   ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 30),
 
                   // Gönder Butonu
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
+                      elevation: 4,
                     ),
-                    icon: const Icon(Icons.send, color: Colors.white),
-                    label: const Text("Gönder", style: TextStyle(fontSize: 18, color: Colors.white)),
-                    onPressed: _sendRequest,
+                    icon: _isSubmitting 
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Icon(Icons.send, color: Colors.white),
+                    label: Text(
+                      _isSubmitting ? "Gönderiliyor..." : "Gönder", 
+                      style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)
+                    ),
+                    onPressed: _isSubmitting ? null : _sendRequest,
                   ),
 
                   const SizedBox(height: 20),
@@ -141,7 +215,10 @@ class _RequestBoxPageState extends State<RequestBoxPage> {
                   TextButton.icon(
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    label: const Text("Geri Dön", style: TextStyle(color: Colors.white, fontSize: 16)),
+                    label: const Text(
+                      "Geri Dön", 
+                      style: TextStyle(color: Colors.white, fontSize: 16)
+                    ),
                   ),
                 ],
               ),

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:videoapp/screens/video_player_page.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'dart:math'; // Rastgele sayı üreteci için bu import satırını ekleyin
-import 'package:videoapp/utils/custom_snackbar.dart';
-import 'package:videoapp/screens/sign_in_page.dart'; // Yeni eklenen import
+import 'dart:async';
+import 'package:videoapp/screens/sign_in_page.dart';
+import 'package:video_player/video_player.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:videoapp/models/github_service.dart';
+// Dosyanın başına ekleyin
 
 class EpisodeDetailsPage extends StatefulWidget {
   final String videoUrl;
@@ -18,6 +20,8 @@ class EpisodeDetailsPage extends StatefulWidget {
   final String? episodeId;
   final int? seasonIndex;
   final int? episodeIndex;
+  final List<Map<String, dynamic>>? episodeList; // Bölüm listesi
+  final int? currentIndex; // Mevcut bölüm index'i
 
   const EpisodeDetailsPage({
     required this.videoUrl,
@@ -27,6 +31,8 @@ class EpisodeDetailsPage extends StatefulWidget {
     this.episodeId,
     this.seasonIndex,
     this.episodeIndex,
+    this.episodeList,
+    this.currentIndex,
     super.key,
   });
 
@@ -37,39 +43,574 @@ class EpisodeDetailsPage extends StatefulWidget {
 class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final GitHubService _githubService = GitHubService();
   
+  // Video oynatıcı
+  VideoPlayerController? _videoPlayerController;
+  bool _isVideoInitialized = false;
+  bool _showVideoControls = true;
+  Timer? _hideVideoControlsTimer;
+  
+  // Reklamlar
   InterstitialAd? _interstitialAd;
   bool _isAdLoaded = false;
-
   BannerAd? _bannerAd;
   bool _isBannerAdLoaded = false;
 
   // Favori durumu
   bool _isFavorite = false;
   bool _isCheckingFavorite = true;
-  bool _isProcessing = false; // Yeni eklenen: İşlem durumu
+  bool _isProcessing = false;
 
-  // Mevcut sınıf değişkenlerine ek olarak:
-  int _addedViewCount = 0; // Yeni eklenen görüntüleme sayısını tutacak değişken
-  final Random _random = Random();
+  // API'den gelen veriler
+  Map<String, dynamic>? _episodeDetails;
+
+  // GitHub'dan gelen seri bilgisi
+  String? _seriesTitle;
+  bool _isLoadingSeriesTitle = true;
+
+  // Diğer
   bool _hasIncrementedView = false;
+
+  // Yorumlar
+  List<Map<String, dynamic>> _comments = [];
+  bool _isLoadingComments = true;
+  final TextEditingController _commentController = TextEditingController();
+  bool _isAddingComment = false;
+
+  // Yeni state değişkenleri ekleyin
+  int _localViewCount = 0;
+  bool _isViewCountLoaded = false;
   
   @override
   void initState() {
     super.initState();
+    print('🎬 EpisodeDetailsPage başlatılıyor...');
+    print('📍 EpisodeID: ${widget.episodeId}');
+    print('📍 EpisodeTitle: ${widget.episodeTitle}');
+    
     _loadInterstitialAd();
     _loadBannerAd();
     _checkIfFavorite();
     _saveToWatchHistory();
-    _incrementViewCounts(); // isim değişti, çoğul oldu
+    _incrementViewCounts();
+    _initializeVideo();
+    _loadSeriesTitleFromGitHub();
+    _loadComments();
+    _loadViewCount(); // İzlenme sayısını hemen yükle
   }
 
+  // Firestore bağlantısını test et
+  Future<void> _testFirestoreConnection() async {
+    try {
+      print('Firestore bağlantısı test ediliyor...');
+      final testDoc = await _firestore.collection('test').doc('test').get();
+      print('Firestore bağlantısı başarılı: ${testDoc.exists}');
+    } catch (e) {
+      print('Firestore bağlantı hatası: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoPlayerController?.dispose();
+    _hideVideoControlsTimer?.cancel();
+    _interstitialAd?.dispose();
+    _bannerAd?.dispose();
+    _commentController.dispose();
+    super.dispose();
+  }
+
+  // Yorumları yükle
+  Future<void> _loadComments() async {
+    print('_loadComments çağrıldı. episodeId: ${widget.episodeId}');
+    
+    if (widget.episodeId == null || widget.episodeId!.isEmpty) {
+      print('episodeId null veya boş, yorumlar yüklenmiyor');
+      setState(() {
+        _isLoadingComments = false;
+      });
+      return;
+    }
+    
+    setState(() {
+      _isLoadingComments = true;
+    });
+
+    try {
+      print('Firestore\'dan yorumlar çekiliyor. episodeId: ${widget.episodeId}');
+      
+      // Önce sadece collection'a erişim test edelim
+      final testSnapshot = await _firestore.collection('comments').limit(1).get();
+      print('Comments koleksiyonuna erişim testi: ${testSnapshot.docs.length} döküman bulundu');
+      
+      final snapshot = await _firestore
+          .collection('comments')
+          .where('episodeId', isEqualTo: widget.episodeId)
+          .get();
+
+      print('Firestore\'dan ${snapshot.docs.length} yorum alındı');
+
+      final comments = <Map<String, dynamic>>[];
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        comments.add(data);
+        print('Yorum eklendi: ${data['comment']}');
+      }
+
+      // Manuel olarak tarihe göre sırala (serverTimestamp sorunlarını önlemek için)
+      comments.sort((a, b) {
+        final aTime = a['createdAt'] as Timestamp?;
+        final bTime = b['createdAt'] as Timestamp?;
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime);
+      });
+
+      setState(() {
+        _comments = comments;
+        _isLoadingComments = false;
+      });
+      
+      print('✅ Yorumlar state\'e yüklendi. Toplam: ${_comments.length}');
+      if (_comments.isNotEmpty) {
+        print('İlk yorum: ${_comments.first['comment']}');
+      } else {
+        print('⚠️ Yorum listesi boş');
+      }
+    } catch (e) {
+      print('Yorumlar yüklenirken hata: $e');
+      print('Hata detayı: ${e.toString()}');
+      setState(() {
+        _isLoadingComments = false;
+      });
+    }
+  }
+
+  // Yorum ekle
+  Future<void> _addComment() async {
+    final user = _auth.currentUser;
+    print('_addComment çağrıldı. user: ${user?.email}, episodeId: ${widget.episodeId}');
+    
+    if (user == null) {
+      print('Kullanıcı giriş yapmamış');
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SignInPage()),
+      );
+      return;
+    }
+
+    if (_commentController.text.trim().isEmpty) {
+      print('Yorum boş');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Lütfen bir yorum yazın'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (widget.episodeId == null || widget.episodeId!.isEmpty) {
+      print('episodeId null veya boş');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bölüm bilgisi bulunamadı'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isAddingComment = true;
+    });
+
+    try {
+      print('Firestore\'a yorum ekleniyor: ${_commentController.text.trim()}');
+      
+      // Kullanıcı adını Firestore'dan al
+      String userName = 'Bilinmeyen Kullanıcı';
+      try {
+        final userDoc = await _firestore.collection('users').doc(user.uid).get();
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>;
+          userName = userData['username'] ?? userData['displayName'] ?? user.displayName ?? user.email?.split('@')[0] ?? 'Bilinmeyen Kullanıcı';
+        } else {
+          // Firestore'da kullanıcı yoksa, mevcut bilgilerden al
+          userName = user.displayName ?? user.email?.split('@')[0] ?? 'Bilinmeyen Kullanıcı';
+        }
+      } catch (e) {
+        print('Kullanıcı adı alınırken hata: $e');
+        userName = user.displayName ?? user.email?.split('@')[0] ?? 'Bilinmeyen Kullanıcı';
+      }
+      
+      print('Kullanıcı adı belirlendi: $userName');
+      
+      await _firestore.collection('comments').add({
+        'episodeId': widget.episodeId,
+        'userId': user.uid,
+        'userEmail': user.email ?? 'Bilinmeyen Kullanıcı',
+        'userName': userName,
+        'comment': _commentController.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      print('Yorum başarıyla eklendi');
+      _commentController.clear();
+      await _loadComments(); // Yorumları yeniden yükle
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Yorum başarıyla eklendi'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Yorum eklenirken hata: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Yorum eklenirken hata oluştu: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isAddingComment = false;
+      });
+    }
+  }
+
+  // Yorum sil
+  Future<void> _deleteComment(String commentId, String userId) async {
+    final user = _auth.currentUser;
+    if (user == null || user.uid != userId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bu yorumu silme yetkiniz yok'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      await _firestore.collection('comments').doc(commentId).delete();
+      await _loadComments(); // Yorumları yeniden yükle
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Yorum silindi'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Yorum silinirken hata: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Yorum silinirken hata oluştu'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Yorumu kopyala
+  void _copyComment(String comment) {
+    Clipboard.setData(ClipboardData(text: comment));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Yorum kopyalandı'),
+        backgroundColor: Colors.green,
+      ),
+    );
+  }
+
+  // Yorum seçenekleri menüsü
+  void _showCommentOptions(Map<String, dynamic> comment) {
+    final isOwnComment = _auth.currentUser?.uid == comment['userId'];
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      builder: (context) => Container(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Kopyala
+            ListTile(
+              leading: const Icon(Icons.copy, color: Colors.blue),
+              title: const Text('Kopyala', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                _copyComment(comment['comment']?.toString() ?? '');
+              },
+            ),
+            
+            // Sadece kendi yorumları için silme
+            if (isOwnComment)
+              ListTile(
+                leading: const Icon(Icons.delete, color: Colors.red),
+                title: const Text('Sil', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _deleteComment(comment['id'], comment['userId']);
+                },
+              ),
+            
+            // Rapor et (başkasının yorumu için)
+            if (!isOwnComment)
+              ListTile(
+                leading: const Icon(Icons.report, color: Colors.red),
+                title: const Text('Rapor Et', style: TextStyle(color: Colors.white)),
+                onTap: () {
+                  Navigator.pop(context);
+                  // Rapor etme işlemi
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Yorum rapor edildi'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Zamanı formatla (örn: "2 saat önce", "1 gün önce")
+  String _formatTimeAgo(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+
+    if (difference.inDays > 0) {
+      return '${difference.inDays} gün önce';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours} saat önce';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes} dakika önce';
+    } else {
+      return 'Şimdi';
+    }
+  }
+
+  // GitHub'dan seri ismini yükle
+  Future<void> _loadSeriesTitleFromGitHub() async {
+    setState(() {
+      _isLoadingSeriesTitle = true;
+    });
+
+    try {
+      print("GitHub'dan seri bilgileri yükleniyor...");
+      
+      // Tüm serileri GitHub'dan çek
+      final allSeries = await _githubService.fetchSeries();
+      
+      String? foundSeriesTitle;
+      
+      // Bölüm başlığından seri ismini çıkarma
+      String episodeTitle = widget.episodeTitle;
+      
+      // Her seriyi kontrol et ve bu bölümün hangi seriye ait olduğunu bul
+      for (var series in allSeries) {
+        // Seri ismiyle eşleşme kontrolü
+        if (episodeTitle.toLowerCase().contains(series.title.toLowerCase())) {
+          foundSeriesTitle = series.title;
+          print("Seri bulundu: ${series.title}");
+          break;
+        }
+        
+        // Ayrıca seasonara bakarak da kontrol edebiliriz
+        for (var season in series.seasons) {
+          for (var episode in season.episodes) {
+            if (episode.title.toLowerCase() == episodeTitle.toLowerCase() ||
+                episode.videoUrl == widget.videoUrl) {
+              foundSeriesTitle = series.title;
+              print("Episode match ile seri bulundu: ${series.title}");
+              break;
+            }
+          }
+          if (foundSeriesTitle != null) break;
+        }
+        if (foundSeriesTitle != null) break;
+      }
+      
+      if (mounted) {
+        setState(() {
+          _seriesTitle = foundSeriesTitle;
+          _isLoadingSeriesTitle = false;
+        });
+        
+        if (foundSeriesTitle != null) {
+          print("GitHub'dan seri ismi yüklendi: $foundSeriesTitle");
+        } else {
+          print("GitHub'da eşleşen seri bulunamadı: $episodeTitle");
+        }
+      }
+    } catch (e) {
+      print("GitHub'dan seri ismi yükleme hatası: $e");
+      if (mounted) {
+        setState(() {
+          _isLoadingSeriesTitle = false;
+        });
+      }
+    }
+  }
+
+  // Video başlatma
+  Future<void> _initializeVideo() async {
+    try {
+      print("Video başlatılıyor: ${widget.videoUrl}");
+      
+      // WebView gerekip gerekmediğini kontrol et
+      if (_shouldVideoUseWebView(widget.videoUrl)) {
+        // WebView kullanılacaksa sadece thumbnail göster, native video player kullanma
+        setState(() {
+          _isVideoInitialized = false; // WebView için native player kullanmıyoruz
+        });
+        print("Video WebView ile oynatılacak");
+        return;
+      }
+      
+      _videoPlayerController = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+      await _videoPlayerController!.initialize();
+      
+      // Kaydedilen pozisyonu yükle
+      final prefs = await SharedPreferences.getInstance();
+      final savedPosition = prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
+      
+      if (savedPosition > 0) {
+        await _videoPlayerController!.seekTo(Duration(milliseconds: savedPosition));
+      }
+      
+      setState(() {
+        _isVideoInitialized = true;
+      });
+      
+      // Kontrolleri başlangıçta göster ve 3 saniye sonra gizle
+      _showVideoControls = true;
+      _hideVideoControlsTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            _showVideoControls = false;
+          });
+        }
+      });
+      
+      // Video durumu değişikliklerini dinle
+      _videoPlayerController!.addListener(() {
+        if (mounted) {
+          setState(() {
+            // UI güncellemesi için setState çağır
+          });
+          _saveVideoPosition();
+        }
+      });
+      
+      print("Video başlatıldı");
+    } catch (e) {
+      print("Video başlatma hatası: $e");
+    }
+  }
+
+  // Video pozisyonunu kaydet
+  Future<void> _saveVideoPosition() async {
+    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
+      final position = _videoPlayerController!.value.position.inMilliseconds;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('video_position_${widget.episodeTitle}', position);
+    }
+  }
+
+  // Kaydedilen video pozisyonunu yükle
+  Future<void> _loadSavedVideoPosition() async {
+    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final savedPosition = prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
+        
+        if (savedPosition > 0) {
+          final duration = Duration(milliseconds: savedPosition);
+          await _videoPlayerController!.seekTo(duration);
+        }
+      } catch (e) {
+        print('Video pozisyon yükleme hatası: $e');
+      }
+    }
+  }
+
+  // Video kontrollerini göster/gizle
+  void _toggleVideoControls() {
+    setState(() {
+      _showVideoControls = !_showVideoControls;
+    });
+    
+    if (_showVideoControls) {
+      _hideVideoControlsTimer?.cancel();
+      _hideVideoControlsTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) {
+          setState(() {
+            _showVideoControls = false;
+          });
+        }
+      });
+    }
+  }
+
+  // Geri sarma
+  void _seekBackward() {
+    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
+      final currentPosition = _videoPlayerController!.value.position;
+      final newPosition = currentPosition - const Duration(seconds: 10);
+      _videoPlayerController!.seekTo(newPosition > Duration.zero ? newPosition : Duration.zero);
+    }
+  }
+
+  // İleri sarma
+  void _seekForward() {
+    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
+      final currentPosition = _videoPlayerController!.value.position;
+      final duration = _videoPlayerController!.value.duration;
+      final newPosition = currentPosition + const Duration(seconds: 10);
+      _videoPlayerController!.seekTo(newPosition < duration ? newPosition : duration);
+    }
+  }
+
+  // Oynat/Duraklat
+  void _togglePlayPause() {
+    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
+      if (_videoPlayerController!.value.isPlaying) {
+        _videoPlayerController!.pause();
+      } else {
+        _videoPlayerController!.play();
+      }
+    }
+  }
+
+  // Tam ekran oynatıcıya git
+  void _navigateToFullScreenPlayer() {
+    _showAdOrNavigate();
+  }
+
+  // Reklam yükleme
   Future<void> _loadInterstitialAd() async {
-    // Mevcut reklamı temizle
     _interstitialAd?.dispose();
     _isAdLoaded = false;
     
-    // Yeni reklam yükle
     await InterstitialAd.load(
       adUnitId: 'ca-app-pub-7690250755006392/8813706277',
       request: const AdRequest(),
@@ -115,7 +656,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     )..load();
   }
 
-  // Videonun favori olup olmadığını kontrol et
+  // Favori kontrol
   Future<void> _checkIfFavorite() async {
     if (_auth.currentUser == null) {
       setState(() {
@@ -125,15 +666,11 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     }
 
     try {
-      // Aynı document ID oluşturma mantığını burada da kullanın
-      final String docId = widget.episodeId ?? 
-          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
-      
       final doc = await _firestore
           .collection('users')
           .doc(_auth.currentUser!.uid)
           .collection('favorites')
-          .doc(docId) // Burada da widget.episodeId yerine docId kullanın
+          .doc(widget.episodeTitle)
           .get();
 
       setState(() {
@@ -141,27 +678,19 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         _isCheckingFavorite = false;
       });
     } catch (e) {
-      print("Favori kontrolünde hata: $e");
+      print("Favori kontrol hatası: $e");
       setState(() {
         _isCheckingFavorite = false;
       });
     }
   }
 
-  // Favorilere ekle/kaldır
+  // Favori toggle
   Future<void> _toggleFavorite() async {
     if (_auth.currentUser == null) {
-      // Kullanıcı giriş yapmamışsa
-      CustomSnackbar.show(
-        context: context,
-        message: 'Favorilere eklemek için giriş yapmalısınız',
-        type: SnackbarType.info,
-        actionLabel: 'Giriş Yap',
-        onAction: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => const SignInPage()),
-          );
-        },
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SignInPage()),
       );
       return;
     }
@@ -173,580 +702,304 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     try {
       if (_isFavorite) {
         await _removeFavorite();
-        CustomSnackbar.show(
-          context: context,
-          message: 'Video favorilerden kaldırıldı',
-          type: SnackbarType.info,
-        );
       } else {
         await _addToFavorite();
-        CustomSnackbar.show(
-          context: context,
-          message: 'Video favorilere eklendi',
-          type: SnackbarType.success,
-        );
       }
-      
       await _checkIfFavorite();
     } catch (e) {
-      print('Favori işleminde hata: $e');
-      CustomSnackbar.show(
-        context: context,
-        message: 'İşlem sırasında bir hata oluştu',
-        type: SnackbarType.error,
-      );
+      print("Favori işlem hatası: $e");
     } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
-      }
+      setState(() {
+        _isProcessing = false;
+      });
     }
   }
 
-  // Favoriden silme metodu
   Future<void> _removeFavorite() async {
     try {
-      // Daha güvenli bir document ID oluşturma (episodeId null olabilir)
-      final String docId = widget.episodeId ?? 
-          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
-      
       await _firestore
-        .collection('users')
-        .doc(_auth.currentUser!.uid)
-        .collection('favorites')
-        .doc(docId) // widget.episodeId yerine docId kullanın
-        .delete();
-    
-      setState(() {
-        _isFavorite = false;
-      });
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('favorites')
+          .doc(widget.episodeTitle)
+          .delete();
     } catch (e) {
-      print('Favoriden kaldırma hatası: $e');
-      rethrow; // Üst metotta yakalanacak
+      print("Favoriden kaldırma hatası: $e");
     }
   }
 
-  // Favoriye ekleme metodu
   Future<void> _addToFavorite() async {
     try {
-      // Daha güvenli bir document ID oluşturma (episodeId null olabilir)
-      final String docId = widget.episodeId ?? 
-          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
-    
       await _firestore
-        .collection('users')
-        .doc(_auth.currentUser!.uid)
-        .collection('favorites')
-        .doc(docId) // widget.episodeId yerine docId kullanın
-        .set({
-          'videoId': docId, // widget.episodeId yerine docId kullanın
-          'videoUrl': widget.videoUrl,
-          'videoTitle': widget.episodeTitle,
-          'thumbnailUrl': widget.thumbnailUrl,
-          'seriesId': widget.seriesId,
-          'addedAt': FieldValue.serverTimestamp(),
-        });
-    
-      setState(() {
-        _isFavorite = true;
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('favorites')
+          .doc(widget.episodeTitle)
+          .set({
+        'title': widget.episodeTitle,
+        'videoUrl': widget.videoUrl,
+        'thumbnailUrl': widget.thumbnailUrl,
+        'seriesId': widget.seriesId,
+        'episodeId': widget.episodeId,
+        'seasonIndex': widget.seasonIndex,
+        'episodeIndex': widget.episodeIndex,
+        'addedAt': FieldValue.serverTimestamp(),
       });
+      
+      print("Favoriye eklendi: ${widget.episodeTitle}");
     } catch (e) {
-      print('Favoriye ekleme hatası: $e');
-      rethrow; // Üst metotta yakalanacak
+      print("Favoriye ekleme hatası: $e");
     }
   }
 
-  void _showAdOrNavigate() async {
+  // İzleme geçmişi
+  Future<void> _saveToWatchHistory() async {
+    if (_auth.currentUser == null) return;
+
+    try {
+      await _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('watchHistory')
+          .doc(widget.episodeTitle)
+          .set({
+        'videoTitle': widget.episodeTitle, // Bu alanı ekleyin
+        'title': widget.episodeTitle,
+        'videoUrl': widget.videoUrl,
+        'thumbnailUrl': widget.thumbnailUrl,
+        'seriesId': widget.seriesId,
+        'episodeId': widget.episodeId,
+        'seasonIndex': widget.seasonIndex,
+        'episodeIndex': widget.episodeIndex,
+        'lastWatched': FieldValue.serverTimestamp(), // Bu alan önemli
+        'watchedAt': FieldValue.serverTimestamp(),
+      });
+      
+      print("İzleme geçmişine eklendi: ${widget.episodeTitle}");
+    } catch (e) {
+      print("İzleme geçmişi kaydetme hatası: $e");
+    }
+  }
+
+  // Görüntülenme sayısı artırma
+  Future<void> _incrementViewCounts() async {
+    if (_hasIncrementedView) return;
+
     try {
       await _incrementViewCount();
+      _hasIncrementedView = true;
+    } catch (e) {
+      print("Görüntülenme sayısı artırma hatası: $e");
+    }
+  }
+
+  // Mevcut _incrementViewCount metodunu şu şekilde güncelleyin:
+  Future<void> _incrementViewCount() async {
+    try {
+      final docRef = _firestore.collection('videos').doc(widget.episodeTitle);
       
-      // Reklam yüklenip yüklenmediğinden bağımsız olarak her seferinde gösterelim
-      // Kullanıcıya yükleme göster
-      if (context.mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const Center(
-            child: CircularProgressIndicator(color: Colors.orangeAccent),
-          ),
-        );
-      }
+      // Tekli artış (1)
+      const int increment = 1;
       
-      // Her navigasyon için reklam yükleme girişimi yap
-      await _loadInterstitialAd();
-      
-      // Yüklemeye zaman tanı (maksimum 2 saniye)
-      await Future.delayed(const Duration(seconds: 2));
-      
-      // Dialog'u kapat
-      if (context.mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      // Reklam yüklendiyse göster
-      if (_isAdLoaded && _interstitialAd != null) {
-        _interstitialAd!.show().catchError((error) {
-          print("Reklam gösterme hatası: $error");
-          _navigateToVideoPlayer();
+      // Local state'i hemen güncelle (görsel olarak anında artış)
+      if (mounted) {
+        setState(() {
+          _localViewCount += increment;
         });
+      }
+      
+      // Firestore'u arka planda güncelle
+      await _firestore.runTransaction((transaction) async {
+        final doc = await transaction.get(docRef);
+        
+        int currentViews = 0;
+        if (doc.exists) {
+          currentViews = doc.data()?['views'] ?? 0;
+        }
+        
+        transaction.set(docRef, {
+          'title': widget.episodeTitle,
+          'views': currentViews + increment,
+          'lastUpdated': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        
+        print("📊 İzlenme sayısı 1 kadar artırıldı. Yeni toplam: ${currentViews + increment}");
+      });
+      
+    } catch (e) {
+      print("Görüntülenme sayısı güncellenirken hata: $e");
+    }
+  }
+
+  // İzlenme sayısını hızlıca yükle
+  Future<void> _loadViewCount() async {
+    try {
+      final doc = await _firestore.collection('videos').doc(widget.episodeTitle).get();
+      
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final viewCount = (data['views'] as num?)?.toInt() ?? 0;
+        
+        if (mounted) {
+          setState(() {
+            _localViewCount = viewCount;
+            _isViewCountLoaded = true;
+          });
+        }
       } else {
-        _navigateToVideoPlayer();
+        if (mounted) {
+          setState(() {
+            _localViewCount = 0;
+            _isViewCountLoaded = true;
+          });
+        }
       }
     } catch (e) {
-      print("Ad gösterme sürecinde hata: $e");
+      print("İzlenme sayısı yükleme hatası: $e");
+      if (mounted) {
+        setState(() {
+          _localViewCount = 0;
+          _isViewCountLoaded = true;
+        });
+      }
+    }
+  }
+
+  // Reklam göster veya direkt git
+  void _showAdOrNavigate() async {
+    if (_isAdLoaded && _interstitialAd != null) {
+      _interstitialAd!.show();
+    } else {
       _navigateToVideoPlayer();
     }
   }
 
-  void _navigateToVideoPlayer() {
-    Navigator.push(
+  void _navigateToVideoPlayer() async {
+    // Mevcut video pozisyonunu kaydet
+    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
+      await _saveVideoPosition();
+      // Mini oynatıcıyı duraklat
+      _videoPlayerController!.pause();
+    }
+    
+    // WebView kullanılıp kullanılmayacağını belirle
+    bool shouldUseWebView = _shouldVideoUseWebView(widget.videoUrl);
+    
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => VideoPlayerPage(
           videoUrl: widget.videoUrl,
           videoTitle: widget.episodeTitle,
+          useWebView: shouldUseWebView,
         ),
       ),
     );
-  }
-
-  // _incrementViewCount metodunu güncelleyin
-  Future<void> _incrementViewCount() async {
-    try {
-      // Rastgele 5 ile 9 arasında bir artış miktarı belirle
-      final Random random = Random();
-      _addedViewCount = random.nextInt(5) + 5; // 5-9 arası rastgele sayı
-      
-      // Daha güvenli bir document ID oluşturma
-      final String docId = widget.episodeId ?? 
-          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
-      
-      final videoDoc = _firestore.collection('videos').doc(docId);
-
-      // Set yerine update kullanarak daha güvenli işlem - rastgele artış miktarını kullan
-      await videoDoc.set(
-        {
-          'title': widget.episodeTitle,
-          'url': widget.videoUrl,
-          'viewCount': FieldValue.increment(_addedViewCount), // Rastgele artış
-          'lastViewed': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-    } catch (e) {
-      print("Görüntülenme sayısı artırılırken hata: $e");
-      _addedViewCount = 0; // Hata durumunda sıfırla
-    }
-  }
-
-  // İzleme sayaçlarını artırma metodu
-  Future<void> _incrementViewCounts() async {
-    if (_hasIncrementedView) return; // İşlem zaten yapıldıysa tekrar yapma
     
-    try {
-      // Daha güvenli bir document ID oluşturma
-      final String docId = widget.episodeId ?? 
-          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
-      
-      final videoDoc = _firestore.collection('videos').doc(docId);
-      
-      // Rastgele 5 ile 9 arasında bir artış miktarı belirle
-      final int randomIncrement = _random.nextInt(5) + 5; // 5-9 arası
-      
-      // Firestore'da tek işlemle iki farklı sayaç güncellenir
-      await videoDoc.set(
-        {
-          'title': widget.episodeTitle,
-          'url': widget.videoUrl,
-          'actualViewCount': FieldValue.increment(1), // Gerçek izleme +1
-          'displayViewCount': FieldValue.increment(randomIncrement), // Göstermelik izleme +5-9
-          'lastViewed': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-      
-      _hasIncrementedView = true;
-    } catch (e) {
-      print("Görüntülenme sayıları artırılırken hata: $e");
-    }
-  }
-  
-  // İzleme geçmişine kaydetme fonksiyonu
-  Future<void> _saveToWatchHistory() async {
-    if (_auth.currentUser == null) return;
-
-    try {
-      final videoId = widget.episodeId ?? 
-          widget.episodeTitle.replaceAll(RegExp(r'[^\w\s]+'), '').trim();
-
-      final userHistoryRef = _firestore
-          .collection('users')
-          .doc(_auth.currentUser!.uid)
-          .collection('watchHistory')
-          .doc(videoId);
-
-      await userHistoryRef.set({
-        'videoId': videoId,
-        'videoTitle': widget.episodeTitle,
-        'videoUrl': widget.videoUrl,
-        'thumbnailUrl': widget.thumbnailUrl,
-        'seriesId': widget.seriesId,
-        'watchedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      print("İzleme geçmişine kaydedilirken hata: $e");
-    }
+    // Tam ekran oynatıcıdan döndükten sonra pozisyonu yükle ve mini oynatıcıyı güncelle
+    await _loadSavedVideoPosition();
   }
 
-  @override
-  void dispose() {
-    _interstitialAd?.dispose();
-    _bannerAd?.dispose();
-    super.dispose();
-  }
-
-  // Yardımcı metod ekleyin
-  Widget _buildActionButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    required Color color,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(color: color, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Metotları ekleyin
-  void _shareVideo() {
-    // Paylaşılacak bilgileri hazırla
-    final String videoTitle = widget.episodeTitle;
-    final String shareMessage = "Beraber izleyelim mi kanka 🎬\n\n$videoTitle";
+  // WebView kullanılması gerekip gerekmediğini belirle
+  bool _shouldVideoUseWebView(String videoUrl) {
+    final url = videoUrl.toLowerCase();
     
-    // Paylaşım diyaloğunu göster
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.grey[900],
-      isScrollControlled: true, // Bu özellik menünün daha fazla alan kaplamasını sağlar
-      useSafeArea: true, // Güvenli alanları dikkate alır
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => Padding(
-        // Alt kısma ekstra boşluk ekle
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom + 30, // Ekran klavyesi + ekstra alan
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 10),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[600],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Text(
-                'Videoyu Paylaş',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: TextField(
-                controller: TextEditingController(text: "Beraber izleyelim mi kanka 🎬"),
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Mesajınız...',
-                  hintStyle: TextStyle(color: Colors.grey[400]),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  fillColor: Colors.grey[850],
-                  filled: true,
-                ),
-                maxLines: 2,
-                onChanged: (value) {
-                  // Kullanıcı mesajı değiştirirse burada işlenebilir
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Row(
-                children: [
-                  // WhatsApp
-                  _buildShareButton(
-                    icon: FontAwesomeIcons.whatsapp,
-                    label: 'WhatsApp',
-                    color: Colors.green,
-                    onTap: () {
-                      Navigator.pop(context);
-                      _shareToApp(shareMessage, 'whatsapp');
-                    },
-                  ),
-                  // Instagram
-                  _buildShareButton(
-                    icon: FontAwesomeIcons.instagram,
-                    label: 'Instagram',
-                    color: Colors.purple,
-                    onTap: () {
-                      Navigator.pop(context);
-                      _shareToApp(shareMessage, 'instagram');
-                    },
-                  ),
-                  // Telegram
-                  _buildShareButton(
-                    icon: FontAwesomeIcons.telegram,
-                    label: 'Telegram',
-                    color: Colors.blue,
-                    onTap: () {
-                      Navigator.pop(context);
-                      _shareToApp(shareMessage, 'telegram');
-                    },
-                  ),
-                  // Diğer
-                  _buildShareButton(
-                    icon: FontAwesomeIcons.share,
-                    label: 'Diğer',
-                    color: Colors.orange,
-                    onTap: () {
-                      Navigator.pop(context);
-                      _shareToApp(shareMessage, '');
-                    },
-                  ),
-                ],
-              ),
-            ),
-            // Ekstra alan ekleyelim
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
-    );
+    // .mp4 dosyaları native player ile oynatılır
+    if (url.endsWith('.mp4')) return false;
+    
+    // YouTube, Vimeo, Dailymotion vs. gibi platformlar WebView ile oynatılır
+    if (url.contains('youtube.com') || 
+        url.contains('youtu.be') ||
+        url.contains('vimeo.com') ||
+        url.contains('dailymotion.com') ||
+        url.contains('facebook.com') ||
+        url.contains('instagram.com') ||
+        url.contains('tiktok.com') ||
+        url.contains('twitch.tv') ||
+        url.contains('embed') ||
+        url.contains('iframe')) {
+      return true;
+    }
+    
+    return false;
   }
 
-  // Uygulama özel paylaşım butonu
-  Widget _buildShareButton({
-    required IconData icon,
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: color, size: 24),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(color: color, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Belirli uygulamaya paylaşım yapma
-  Future<void> _shareToApp(String message, String app) async {
+  // Paylaş
+  void _shareVideo() async {
     try {
-      String customMessage = message;
-      
-      // App store linki ekle
-      const appStoreLink = "https://play.google.com/store/apps/details?id=com.bintech.videoapp";
-      
-      // Video URL'ini veya özel link ekle
-      if (widget.seriesId != null && widget.episodeId != null) {
-        customMessage += "\n\nİzlemek için: https://playtoon.app/watch/${widget.seriesId}/${widget.episodeId}";
-      }
-      
-      // App Store linki ekle
-      customMessage += "\n\nUygulamayı indirmek için: $appStoreLink";
-      
-      if (app.isEmpty) {
-        // Genel paylaşım diyaloğunu göster
-        await Share.share(customMessage, subject: widget.episodeTitle);
-      } else {
-        // Belirli uygulamaya yönlendir
-        // Not: Bu özellik cihaz ve işletim sistemi uyumluluğuna bağlıdır
-        await Share.share(customMessage, subject: widget.episodeTitle);
-        
-        // Özel uygulama paylaşımı için kapsayıcı kod (platformlar arası uyumluluk için)
-        // Bu bölüm gerçek bir uygulama ID'si ile genişletilebilir
-      }
+      await Share.share(
+        'Bu harika videoyu izle: ${widget.episodeTitle}\n${widget.videoUrl}',
+        subject: widget.episodeTitle,
+      );
     } catch (e) {
       print("Paylaşım hatası: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Paylaşım sırasında bir hata oluştu: ${e.toString()}')),
-      );
     }
   }
 
-  void _downloadVideo() {
-    // İndirme işlemleri
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('İndirme özelliği yakında eklenecek')),
-    );
-  }
-
-  void _addToPlaylist() {
-    // Listeye ekleme işlemleri
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Liste özelliği yakında eklenecek')),
-    );
-  }
-
-  // Ayarlar menüsü metodu
+  // Seçenekler menüsü
   void _showOptionsMenu() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.grey[850],
-      isScrollControlled: true,
-      useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom + 30,
-        ),
+      backgroundColor: Colors.grey[900],
+      builder: (context) => Container(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Görsel gösterge
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 10),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[600],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            
-            // "Bozuk İçeriği Bildir" seçeneği - sadece bu seçenek kaldı
             ListTile(
-              leading: const Icon(Icons.report_problem, color: Colors.orange),
-              title: const Text('Bozuk İçeriği Bildir', style: TextStyle(color: Colors.white)),
+              leading: const Icon(Icons.info, color: Colors.blue),
+              title: const Text('Bilgi', style: TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(context);
-                _reportBrokenContent(); // Basitleştirilmiş metot
+                // Bilgi dialog'u göster
               },
             ),
-            
-            // İptal butonu
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: TextButton.styleFrom(
-                    backgroundColor: Colors.grey[800],
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text('İptal', style: TextStyle(color: Colors.white)),
-                ),
-              ),
+            ListTile(
+              leading: const Icon(Icons.report, color: Colors.red),
+              title: const Text('Rapor Et', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                // Rapor et
+              },
             ),
+            // Alt boşluk ekle
+            const SizedBox(height: 20),
           ],
         ),
       ),
     );
   }
 
-  // Bozuk içerik bildirme için basitleştirilmiş yeni metot
-  Future<void> _reportBrokenContent() async {
+  // Firestore test fonksiyonu (debug amaçlı)
+  Future<void> _testFirestore() async {
     try {
-      // E-posta adresi
-      const String emailAddress = "playtoonapp@gmail.com"; // Kendi e-posta adresinizle değiştirin
-      
-      // Konu oluştur
-      final String subject = "Bozuk İçerik Bildirimi: ${widget.episodeTitle}";
-      
-      // E-posta içeriği oluştur
-      String body = "Bozuk İçerik Bildirimi\n\n";
-      body += "Seri/Dizi: ${widget.seriesId ?? 'Belirtilmemiş'}\n";
-      body += "Bölüm: ${widget.episodeTitle}\n";
-      body += "Bölüm ID: ${widget.episodeId ?? 'Belirtilmemiş'}\n";
-      body += "Sezon: ${widget.seasonIndex ?? 'Belirtilmemiş'}\n";
-      body += "Bölüm Numarası: ${widget.episodeIndex ?? 'Belirtilmemiş'}\n\n";
-      
-      // Kullanıcı bilgilerini ekle
-      final user = _auth.currentUser;
-      if (user != null) {
-        body += "Bildiren Kullanıcı: ${user.email ?? user.uid}\n";
-      }
-      
-      body += "\nTarih: ${DateTime.now().toString()}\n";
-      
-      // mailto URL'i oluştur
-      final Uri emailUri = Uri(
-        scheme: 'mailto',
-        path: emailAddress,
-        query: encodeQueryParameters({
-          'subject': subject,
-          'body': body,
-        }),
-      );
-      
-      // E-posta uygulamasını aç
-      if (await canLaunchUrl(emailUri)) {
-        await launchUrl(emailUri);
-        
-        // Başarı mesajı göster
+      print('Test Firestore fonksiyonu çağrıldı.');
+      final testDoc = await _firestore.collection('test').doc('test').get();
+      if (testDoc.exists) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Bildiriminiz için teşekkür ederiz. İçerik en kısa sürede düzeltilecektir.'),
+              content: Text('Firestore bağlantısı başarılı!'),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 4),
             ),
           );
         }
       } else {
-        throw Exception('E-posta uygulaması açılamadı');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Firestore bağlantısı var, ancak test dokümanı yok.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       }
     } catch (e) {
-      print("E-posta gönderme hatası: $e");
+      print('Firestore test hatası: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Bozuk içerik bildirimi yapılırken bir sorun oluştu.'),
+          SnackBar(
+            content: Text('Firestore test hatası: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -754,11 +1007,115 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     }
   }
 
-  // URL query parametrelerini kodlama yardımcı fonksiyonu
-  String? encodeQueryParameters(Map<String, String> params) {
-    return params.entries
-        .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
-        .join('&');
+  // Zaman formatı
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    if (duration.inHours > 0) {
+      return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
+    } else {
+      return "$twoDigitMinutes:$twoDigitSeconds";
+    }
+  }
+
+  // Görüntülenme sayısını formatla
+  String _formatViewCount(int viewCount) {
+    if (viewCount >= 1000000) {
+      return '${(viewCount / 1000000).toStringAsFixed(1)}M';
+    } else if (viewCount >= 1000) {
+      return '${(viewCount / 1000).toStringAsFixed(1)}K';
+    } else {
+      return viewCount.toString();
+    }
+  }
+
+  // Aksiyon butonu
+  Widget _buildActionButtonNew({
+    required IconData? icon,
+    required String label,
+    required VoidCallback? onTap,
+    required Color color,
+    bool isLoading = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isLoading)
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else if (icon != null)
+              Icon(icon, color: color, size: 24),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Önceki bölüme git
+  void _navigateToPreviousEpisode() {
+    if (widget.episodeList == null || widget.currentIndex == null) return;
+    if (widget.currentIndex! <= 0) return;
+
+    final previousEpisode = widget.episodeList![widget.currentIndex! - 1];
+    
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EpisodeDetailsPage(
+          videoUrl: previousEpisode['videoUrl'] ?? '',
+          episodeTitle: previousEpisode['title'] ?? 'Önceki Bölüm',
+          thumbnailUrl: previousEpisode['thumbnail'],
+          seriesId: widget.seriesId,
+          episodeId: previousEpisode['episodeId'],
+          seasonIndex: widget.seasonIndex,
+          episodeIndex: widget.currentIndex! - 1,
+          episodeList: widget.episodeList,
+          currentIndex: widget.currentIndex! - 1,
+        ),
+      ),
+    );
+  }
+
+  // Sonraki bölüme git
+  void _navigateToNextEpisode() {
+    if (widget.episodeList == null || widget.currentIndex == null) return;
+    if (widget.currentIndex! >= widget.episodeList!.length - 1) return;
+
+    final nextEpisode = widget.episodeList![widget.currentIndex! + 1];
+    
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EpisodeDetailsPage(
+          videoUrl: nextEpisode['videoUrl'] ?? '',
+          episodeTitle: nextEpisode['title'] ?? 'Sonraki Bölüm',
+          thumbnailUrl: nextEpisode['thumbnail'],
+          seriesId: widget.seriesId,
+          episodeId: nextEpisode['episodeId'],
+          seasonIndex: widget.seasonIndex,
+          episodeIndex: widget.currentIndex! + 1,
+          episodeList: widget.episodeList,
+          currentIndex: widget.currentIndex! + 1,
+        ),
+      ),
+    );
   }
 
   @override
@@ -770,7 +1127,15 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         elevation: 0,
         centerTitle: false,
         title: Text(
-          widget.episodeTitle,
+          _isLoadingSeriesTitle 
+              ? 'Yükleniyor...'
+              : _seriesTitle?.isNotEmpty == true 
+                  ? _seriesTitle!
+                  : _episodeDetails?['api_title']?.isNotEmpty == true 
+                      ? _episodeDetails!['api_title']
+                      : _episodeDetails?['seriesTitle']?.isNotEmpty == true
+                          ? _episodeDetails!['seriesTitle']
+                          : 'Bölüm Detayları',
           style: const TextStyle(
             color: Colors.white,
             fontSize: 18,
@@ -779,7 +1144,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        ///
       ),
       
       body: SafeArea(
@@ -790,123 +1154,300 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Video Önizleme - Büyük ve daha estetik
+                    // Video Player
                     Stack(
                       children: [
-                        // Video Thumbnail/Önizleme
+                        // Video Player Container
                         Container(
                           width: double.infinity,
                           height: 220,
                           decoration: BoxDecoration(
+                            color: Colors.black,
                             gradient: LinearGradient(
                               colors: [Colors.black, Colors.grey[900]!],
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
                             ),
-                            image: widget.thumbnailUrl != null ? DecorationImage(
-                              image: NetworkImage(widget.thumbnailUrl!),
-                              fit: BoxFit.cover,
-                              opacity: 0.7,
-                            ) : null,
                           ),
+                          child: _videoPlayerController != null && _isVideoInitialized
+                              ? AspectRatio(
+                                  aspectRatio: _videoPlayerController!.value.aspectRatio,
+                                  child: VideoPlayer(_videoPlayerController!),
+                                )
+                              : widget.thumbnailUrl != null
+                                  ? Image.network(
+                                      widget.thumbnailUrl!,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      height: double.infinity,
+                                    )
+                                  : const Center(
+                                      child: Icon(
+                                        Icons.video_library,
+                                        color: Colors.white54,
+                                        size: 64,
+                                      ),
+                                    ),
                         ),
                         
-                        // Oynat Butonu Overlay
-                        Positioned.fill(
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: _showAdOrNavigate,
-                              child: Center(
+                        // Video Controls Overlay
+                        if (_videoPlayerController != null && _isVideoInitialized)
+                          Positioned.fill(
+                            child: GestureDetector(
+                              onTap: _toggleVideoControls,
+                              child: AnimatedOpacity(
+                                opacity: _showVideoControls ? 1.0 : 0.0,
+                                duration: const Duration(milliseconds: 300),
                                 child: Container(
-                                  padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.5),
-                                    shape: BoxShape.circle,
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.black.withOpacity(0.3),
+                                        Colors.transparent,
+                                        Colors.black.withOpacity(0.3),
+                                      ],
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                    ),
                                   ),
-                                  child: const Icon(Icons.play_arrow, color: Colors.orangeAccent, size: 50),
+                                  child: Stack(
+                                    children: [
+                                      // Merkezi kontrol alanı
+                                      Center(
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            // 10 saniye geri butonu
+                                            GestureDetector(
+                                              onTap: _seekBackward,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(8),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.black.withOpacity(0.6),
+                                                  borderRadius: BorderRadius.circular(25),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.replay_10,
+                                                  color: Colors.white,
+                                                  size: 28,
+                                                ),
+                                              ),
+                                            ),
+                                            
+                                            const SizedBox(width: 20),
+                                            
+                                            // Oynat/Duraklat butonu
+                                            GestureDetector(
+                                              onTap: _togglePlayPause,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(12),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.black.withOpacity(0.6),
+                                                  borderRadius: BorderRadius.circular(30),
+                                                ),
+                                                child: Icon(
+                                                  _videoPlayerController!.value.isPlaying
+                                                      ? Icons.pause
+                                                      : Icons.play_arrow,
+                                                  color: Colors.white,
+                                                  size: 32,
+                                                ),
+                                              ),
+                                            ),
+                                            
+                                            const SizedBox(width: 20),
+                                            
+                                            // 10 saniye ileri butonu
+                                            GestureDetector(
+                                              onTap: _seekForward,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(8),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.black.withOpacity(0.6),
+                                                  borderRadius: BorderRadius.circular(25),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.forward_10,
+                                                  color: Colors.white,
+                                                  size: 28,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      
+                                      // Tam ekran butonu (sağ üst)
+                                      Positioned(
+                                        top: 16,
+                                        right: 16,
+                                        child: GestureDetector(
+                                          onTap: _navigateToFullScreenPlayer,
+                                          child: Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withOpacity(0.6),
+                                              borderRadius: BorderRadius.circular(20),
+                                            ),
+                                            child: const Icon(
+                                              Icons.fullscreen,
+                                              color: Colors.white,
+                                              size: 20,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      
+                                      // Progress bar (alt)
+                                      Positioned(
+                                        bottom: 16,
+                                        left: 16,
+                                        right: 16,
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            // Zaman göstergesi
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                Text(
+                                                  _formatDuration(_videoPlayerController!.value.position),
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  _formatDuration(_videoPlayerController!.value.duration),
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            // Progress indicator
+                                            LinearProgressIndicator(
+                                              value: _videoPlayerController!.value.duration.inMilliseconds > 0
+                                                  ? _videoPlayerController!.value.position.inMilliseconds /
+                                                    _videoPlayerController!.value.duration.inMilliseconds
+                                                  : 0.0,
+                                              backgroundColor: Colors.white.withOpacity(0.3),
+                                              valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
+                                              minHeight: 3,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
                       ],
                     ),
 
-                    // Sezon-Bölüm Bilgisi - Yeni eklenen özellik
-                    if (widget.seasonIndex != null || widget.episodeIndex != null)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.blue.withOpacity(0.5)),
-                          ),
-                          child: Text(
-                            "Sezon ${widget.seasonIndex ?? '?'} • Bölüm ${widget.episodeIndex ?? '?'}",
+                    // Bölüm Başlığı
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.episodeTitle,
                             style: const TextStyle(
-                              color: Colors.blue,
-                              fontWeight: FontWeight.w500,
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
                             ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ),
-
-                    // Bölüm Başlığı - Daha büyük ve belirgin
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                      child: Text(
-                        widget.episodeTitle,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    
-                    // Video İstatistikleri - Yeni eklenen özellik
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                      child: FutureBuilder<DocumentSnapshot>(
-                        future: _firestore.collection('videos').doc(widget.episodeId).get(),
-                        builder: (context, snapshot) {
-                          int displayViewCount = 0;
-                          
-                          if (snapshot.hasData && snapshot.data!.exists) {
-                            final data = snapshot.data!.data() as Map<String, dynamic>;
-                            // Kullanıcılara göstermelik sayacı gösteriyoruz
-                            displayViewCount = (data['displayViewCount'] as num?)?.toInt() ?? 0;
-                            
-                            // Eğer displayViewCount yoksa, eski viewCount'u kullan (geriye dönük uyumluluk için)
-                            if (displayViewCount == 0) {
-                              displayViewCount = (data['viewCount'] as num?)?.toInt() ?? 0;
-                            }
-                          }
-                          
-                          // Görüntüleme sayısını daha okunabilir formata dönüştür
-                          String formattedViewCount = _formatNumber(displayViewCount);
-                          
-                          return Row(
+                          const SizedBox(height: 8),
+                          // İzlenme sayısı göstergesi - Local state ile hızlı gösterim
+                          Row(
                             children: [
                               const Icon(Icons.visibility, size: 16, color: Colors.blue),
                               const SizedBox(width: 4),
-                              Text(
-                                "$formattedViewCount görüntüleme",
-                                style: TextStyle(color: Colors.grey[400], fontSize: 14),
-                              ),
+                              _isViewCountLoaded
+                                  ? Text(
+                                      "${_formatViewCount(_localViewCount)} görüntüleme",
+                                      style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                                    )
+                                  : const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                                      ),
+                                    ),
                             ],
-                          );
-                        },
+                          ),
+                        ],
                       ),
                     ),
 
-
                     const Divider(color: Colors.grey, thickness: 0.5, height: 15),
+
+                    // Önceki/Sonraki Bölüm Navigasyonu
+                    if (widget.episodeList != null && widget.currentIndex != null)
+                      Container(
+                        margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                        child: Row(
+                          children: [
+                            // Önceki Bölüm
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: (widget.currentIndex! > 0) ? _navigateToPreviousEpisode : null,
+                                icon: const Icon(Icons.skip_previous, color: Colors.white),
+                                label: const Text(
+                                  'Önceki Bölüm',
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: (widget.currentIndex! > 0) 
+                                      ? Colors.blue.withOpacity(0.8) 
+                                      : Colors.grey.withOpacity(0.3),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            // Sonraki Bölüm
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                onPressed: (widget.currentIndex! < widget.episodeList!.length - 1) 
+                                    ? _navigateToNextEpisode 
+                                    : null,
+                                icon: const Icon(Icons.skip_next, color: Colors.white),
+                                label: const Text(
+                                  'Sonraki Bölüm',
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: (widget.currentIndex! < widget.episodeList!.length - 1) 
+                                      ? Colors.blue.withOpacity(0.8) 
+                                      : Colors.grey.withOpacity(0.3),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     
-                    // Paylaş, İndir ve 3 Nokta Menü Butonları
+                    // Aksiyon Butonları
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.grey[900],
@@ -919,7 +1460,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                           ),
                         ],
                       ),
-                      margin: const EdgeInsets.all(16.0),
+                      margin: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 16.0),
                       child: Row(
                         children: [
                           Expanded(
@@ -930,25 +1471,21 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                               color: Colors.blue,
                             ),
                           ),
-                          // Dikey ayırıcı
                           Container(width: 1, height: 40, color: Colors.grey[800]),
-                          // İndirme butonu yerine favoriler butonu
                           Expanded(
                             child: _buildActionButtonNew(
                               icon: _isProcessing 
-                                ? null // İşlem sürerken ikon gösterme
+                                ? null
                                 : (_isFavorite ? Icons.favorite : Icons.favorite_border),
                               label: _isProcessing 
                                 ? 'İşleniyor...' 
                                 : (_isFavorite ? 'Favorilerde' : 'Favorile'),
-                              onTap: (_isCheckingFavorite || _isProcessing) ? null : _toggleFavorite, // İşlem sürerken devre dışı bırak
+                              onTap: (_isCheckingFavorite || _isProcessing) ? null : _toggleFavorite,
                               color: _isFavorite ? Colors.red : Colors.pink,
-                              isLoading: _isProcessing, // Yeni yükleme parametresi
+                              isLoading: _isProcessing,
                             ),
                           ),
-                          // Dikey ayırıcı
                           Container(width: 1, height: 40, color: Colors.grey[800]),
-                          // Listeye Ekle yerine 3 nokta menüsü
                           Expanded(
                             child: _buildActionButtonNew(
                               icon: Icons.more_horiz,
@@ -961,46 +1498,271 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                       ),
                     ),
                     
-                    // Daha Fazla Bilgi Bölümü
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    // Yorumlar bölümü
+                    const SizedBox(height: 24),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1A1A),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Video Hakkında',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                          // Yorumlar başlık
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.comment,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Yorumlar (${_comments.length})',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          // İçerik açıklaması
-                          FutureBuilder<DocumentSnapshot>(
-                            future: _firestore.collection('videos').doc(widget.episodeId).get(),
-                            builder: (context, snapshot) {
-                              String description = 'Bu içerik hakkında açıklama bulunmuyor.';
-                              if (snapshot.hasData && snapshot.data!.exists) {
-                                final data = snapshot.data!.data() as Map<String, dynamic>;
-                                if (data.containsKey('description') && data['description'] != null) {
-                                  description = data['description'];
-                                }
-                              }
-                              
-                              return Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(8),
-                                  color: Colors.grey[850],
+                          
+                          // Yorum ekleme bölümü
+                          if (_auth.currentUser != null)
+                            Container(
+                              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.3),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  TextField(
+                                    controller: _commentController,
+                                    style: const TextStyle(color: Colors.white),
+                                    maxLines: 3,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Yorumunuzu yazın...',
+                                      hintStyle: TextStyle(color: Colors.white54),
+                                      border: InputBorder.none,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      if (_isAddingComment)
+                                        const SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                                          ),
+                                        )
+                                      else
+                                        ElevatedButton(
+                                          onPressed: _addComment,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.red,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16, 
+                                              vertical: 8,
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'Yorum Yap',
+                                            style: TextStyle(color: Colors.white),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            Container(
+                              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.3),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.info_outline,
+                                    color: Colors.white54,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'Yorum yapabilmek için giriş yapın',
+                                      style: TextStyle(color: Colors.white54),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => const SignInPage(),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'Giriş Yap',
+                                      style: TextStyle(color: Colors.red),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          
+                          // Yorumlar listesi
+                          if (_isLoadingComments)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
                                 ),
+                              ),
+                            )
+                          else if (_comments.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(
                                 child: Text(
-                                  description,
-                                  style: const TextStyle(color: Colors.white70),
+                                  'Henüz yorum yapılmamış.\nİlk yorumu siz yapın!',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 14,
+                                  ),
                                 ),
-                              );
-                            },
-                          ),
+                              ),
+                            )
+                          else if (_comments.isNotEmpty)
+                            ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              itemCount: _comments.length,
+                              separatorBuilder: (context, index) {
+                                // Güvenli separator
+                                if (index < 0 || index >= _comments.length - 1) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Divider(
+                                  color: Colors.white.withOpacity(0.1),
+                                  height: 1,
+                                );
+                              },
+                              itemBuilder: (context, index) {
+                                // Güvenli indeks kontrolü
+                                if (index < 0 || index >= _comments.length) {
+                                  return const SizedBox.shrink();
+                                }
+                                
+                                final comment = _comments[index];
+                                final createdAt = comment['createdAt'] as Timestamp?;
+                                final timeAgo = createdAt != null
+                                    ? _formatTimeAgo(createdAt.toDate())
+                                    : 'Bilinmiyor';
+                                
+                                // Güvenli userName erişimi ve formatlaması
+                                String userName = 'Bilinmeyen Kullanıcı';
+                                if (comment['userName'] != null && comment['userName'].toString().trim().isNotEmpty) {
+                                  userName = comment['userName'].toString().trim();
+                                } else if (comment['userEmail'] != null && comment['userEmail'].toString().trim().isNotEmpty) {
+                                  // Email'den kullanıcı adı çıkar
+                                  final email = comment['userEmail'].toString();
+                                  if (email.contains('@')) {
+                                    userName = email.split('@')[0];
+                                  } else {
+                                    userName = email;
+                                  }
+                                }
+                                
+                                // Kullanıcı adını güzelleştir (ilk harfleri büyük yap)
+                                userName = userName.split(' ').map((word) => 
+                                  word.isNotEmpty ? word[0].toUpperCase() + word.substring(1).toLowerCase() : word
+                                ).join(' ');
+                                
+                                final userInitial = userName.isNotEmpty ? userName[0].toUpperCase() : 'U';
+                                
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          CircleAvatar(
+                                            backgroundColor: Colors.red,
+                                            radius: 16,
+                                            child: Text(
+                                              userInitial,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  userName,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  timeAgo,
+                                                  style: const TextStyle(
+                                                    color: Colors.white54,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          // 3 nokta menüsü (her yorum için)
+                                          IconButton(
+                                            onPressed: () => _showCommentOptions(comment),
+                                            icon: const Icon(
+                                              Icons.more_vert,
+                                              color: Colors.white54,
+                                              size: 20,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        comment['comment']?.toString() ?? '',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
                         ],
                       ),
                     ),
@@ -1008,85 +1770,17 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                 ),
               ),
             ),
-
-            // Banner Reklam
+            
+            // Banner reklamı
             if (_isBannerAdLoaded && _bannerAd != null)
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.black,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 5,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
-                ),
-                child: SizedBox(
-                  height: _bannerAd!.size.height.toDouble(),
-                  width: _bannerAd!.size.width.toDouble(),
-                  child: AdWidget(ad: _bannerAd!),
-                ),
+              SizedBox(
+                height: _bannerAd!.size.height.toDouble(),
+                width: _bannerAd!.size.width.toDouble(),
+                child: AdWidget(ad: _bannerAd!),
               ),
           ],
         ),
       ),
     );
-  }
-
-  // Yeniden tasarlanmış eylem butonu
-  Widget _buildActionButtonNew({
-    required IconData? icon,
-    required String label,
-    required VoidCallback? onTap,
-    required Color color,
-    bool isLoading = false, // Yeni parametre ekleyin
-  }) {
-    return InkWell(
-      onTap: onTap, // null olduğunda otomatik olarak devre dışı kalır
-      borderRadius: BorderRadius.circular(8),
-      child: Opacity(
-        opacity: onTap == null ? 0.5 : 1.0, // Devre dışı durumunda soluk görünüm
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 24,
-                width: 24,
-                child: isLoading
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(color),
-                      ),
-                    )
-                  : Icon(icon, color: color, size: 24),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w500),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Sayıları formatlayan yardımcı metot
-  String _formatNumber(int number) {
-    if (number < 1000) {
-      return number.toString();
-    } else if (number < 1000000) {
-      return '${(number / 1000).toStringAsFixed(1)}K';
-    } else {
-      return '${(number / 1000000).toStringAsFixed(1)}M';
-    }
   }
 }

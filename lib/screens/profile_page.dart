@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:videoapp/screens/episode_detail_screen.dart';
 import 'package:videoapp/utils/custom_snackbar.dart'; // Özel Snackbar için import
+// VideoPlayerPage için import ekleyin
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -19,7 +20,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
   User? _currentUser;
   
   // Stream abonelikleri
-  StreamSubscription<QuerySnapshot>? _favoritesSubscription;
+  StreamSubscription<List<Map<String, dynamic>>>? _favoritesSubscription;
   StreamSubscription<QuerySnapshot>? _historySubscription;
   
   // Kullanıcı bilgileri
@@ -109,21 +110,9 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     }
 
     // Favorileri stream olarak dinle
-    _favoritesSubscription = _firestore
-        .collection('users')
-        .doc(_currentUser!.uid)
-        .collection('favorites')
-        .orderBy('addedAt', descending: true)
-        .snapshots()
-        .listen((snapshot) {
+    _favoritesSubscription = _getFavoritesStream().listen((favorites) {
           if (!mounted) return;
           
-          List<Map<String, dynamic>> favorites = [];
-          for (var doc in snapshot.docs) {
-            Map<String, dynamic> data = doc.data();
-            data['id'] = doc.id;
-            favorites.add(data);
-          }
 
           setState(() {
             _favorites = favorites;
@@ -366,145 +355,215 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     );
   }
 
-  // Favoriler tabı
+  // Favoriler Tab'ı
   Widget _buildFavoritesTab() {
-    if (_isLoadingFavorites) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
-    }
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _getFavoritesStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.red),
+          );
+        }
 
-    if (_favorites.isEmpty) {
-      return _buildEmptyState('Henüz favorilere eklediğiniz video yok', Icons.favorite_border);
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      itemCount: _favorites.length,
-      itemBuilder: (context, index) {
-        final favorite = _favorites[index];
-        
-        // Basitleştirilmiş kart yapısı
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          color: Colors.grey[850],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(15),
-          ),
-          elevation: 3,
-          child: InkWell(
-            onTap: () => _openVideoFromFavorites(favorite),
-            borderRadius: BorderRadius.circular(15),
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Row(
-                children: [
-                  // Thumbnail - sabit boyut
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: SizedBox(
-                      width: 70,
-                      height: 70,
-                      child: favorite['thumbnailUrl'] != null
-                        ? Image.network(
-                            favorite['thumbnailUrl'],
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, _) => Container(
-                              color: Colors.grey[700],
-                              child: const Icon(Icons.movie, color: Colors.white54),
-                            ),
-                          )
-                        : Container(
-                            color: Colors.grey[700],
-                            child: const Icon(Icons.movie, color: Colors.white54),
-                          ),
-                    ),
-                  ),
-                  
-                  // İçerik bilgileri - esnek alan
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            favorite['videoTitle'] ?? 'Bilinmeyen Video',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (favorite['addedAt'] != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                _formatTimeAgo(favorite['addedAt']),
-                                style: TextStyle(
-                                  color: Colors.grey[400],
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  // Butonlar - sağ kenar
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Oynat butonu
-                      IconButton(
-                        icon: const Icon(Icons.play_arrow, color: Colors.blue, size: 22),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                        onPressed: () => _openVideoFromFavorites(favorite),
-                      ),
-                      // Sil butonu
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red, size: 18),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                        onPressed: () => _removeFavorite(favorite['videoId']),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Hata: ${snapshot.error}',
+              style: const TextStyle(color: Colors.white),
             ),
-          ),
+          );
+        }
+
+        final favorites = snapshot.data ?? [];
+
+        if (favorites.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.favorite_border, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  'Henüz favori eklenmemiş',
+                  style: TextStyle(color: Colors.grey, fontSize: 16),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: favorites.length,
+          itemBuilder: (context, index) {
+            final favorite = favorites[index];
+            return _buildFavoriteCard(favorite);
+          },
         );
       },
     );
   }
 
-  // Favori videoyu aç - artık eski yenileme kaldırıldı
+  // İzleme Geçmişi Tab'ı
+  Widget _buildWatchHistoryTab() {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _getWatchHistoryStream(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.red),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Hata: ${snapshot.error}',
+              style: const TextStyle(color: Colors.white),
+            ),
+          );
+        }
+
+        final watchHistory = snapshot.data ?? [];
+
+        if (watchHistory.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.history, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text(
+                  'İzleme geçmişi boş',
+                  style: TextStyle(color: Colors.grey, fontSize: 16),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: watchHistory.length,
+          itemBuilder: (context, index) {
+            final historyItem = watchHistory[index];
+            return _buildHistoryCard(historyItem);
+          },
+        );
+      },
+    );
+  }
+
+  // Favori kartı oluştur
+  Widget _buildFavoriteCard(Map<String, dynamic> favorite) {
+    return Card(
+      color: Colors.grey[850],
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: 80,
+            height: 60,
+            child: favorite['thumbnailUrl'] != null
+                ? Image.network(
+                    favorite['thumbnailUrl'],
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.grey[800],
+                        child: const Icon(Icons.video_library, color: Colors.white54),
+                      );
+                    },
+                  )
+                : Container(
+                    color: Colors.grey[800],
+                    child: const Icon(Icons.video_library, color: Colors.white54),
+                  ),
+          ),
+        ),
+        title: Text(
+          favorite['title'] ?? 'Bilinmeyen Bölüm',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          _formatTime(favorite['addedAt']),
+          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete, color: Colors.red),
+          onPressed: () => _removeFavorite(favorite['id']),
+        ),
+        // onTap: () => _openVideoFromFavorites(favorite), // BU SATIRI KALDIR
+      ),
+    );
+  }
+
+  // İzleme geçmişi kartı oluştur
+  Widget _buildHistoryCard(Map<String, dynamic> historyItem) {
+    return Card(
+      color: Colors.grey[850],
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: 80,
+            height: 60,
+            child: historyItem['thumbnailUrl'] != null
+                ? Image.network(
+                    historyItem['thumbnailUrl'],
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.grey[800],
+                        child: const Icon(Icons.video_library, color: Colors.white54),
+                      );
+                    },
+                  )
+                : Container(
+                    color: Colors.grey[800],
+                    child: const Icon(Icons.video_library, color: Colors.white54),
+                  ),
+          ),
+        ),
+        title: Text(
+          historyItem['videoTitle'] ?? historyItem['title'] ?? 'Bilinmeyen Bölüm',
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        subtitle: Text(
+          _formatTime(historyItem['lastWatched'] ?? historyItem['watchedAt']),
+          style: TextStyle(color: Colors.grey[400], fontSize: 12),
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete, color: Colors.red),
+          onPressed: () => _deleteWatchHistoryItem(historyItem['id']),
+        ),
+      ),
+    );
+  }
+
+  // Favori videoyu aç - EpisodeDetailsPage ile
   void _openVideoFromFavorites(Map<String, dynamic> favorite) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => EpisodeDetailsPage(
-          videoUrl: favorite['videoUrl'],
-          episodeTitle: favorite['videoTitle'],
+          videoUrl: favorite['videoUrl'] ?? '',
+          episodeTitle: favorite['title'] ?? 'Bilinmeyen Video',
           thumbnailUrl: favorite['thumbnailUrl'],
           seriesId: favorite['seriesId'],
-          episodeId: favorite['videoId'],
+          episodeId: favorite['episodeId'],
+          seasonIndex: favorite['seasonIndex'],
+          episodeIndex: favorite['episodeIndex'],
         ),
       ),
     );
-    // Artık .then içinde yenilemeye gerek yok - stream otomatik güncelliyor
   }
 
   // Favoriyi sil
@@ -635,229 +694,23 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     }
   }
 
-  // İzleme geçmişi tabı
-  Widget _buildWatchHistoryTab() {
-    if (_isLoadingHistory) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.blue),
-      );
-    }
 
-    if (_watchHistory.isEmpty) {
-      return _buildEmptyState('Henüz izleme geçmişiniz yok', Icons.history);
-    }
-
-    return Column(
-      children: [
-        // Temizleme butonu
-        Container(
-          margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              ElevatedButton.icon(
-                onPressed: _confirmClearAllHistory,
-                icon: const Icon(Icons.delete_sweep, size: 18),
-                label: const Text('Geçmişi Temizle'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent.withOpacity(0.8),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                ),
-              ),
-            ],
-          ),
-        ),
-        
-        // İzleme geçmişi listesi
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            itemCount: _watchHistory.length,
-            itemBuilder: (context, index) {
-              final historyItem = _watchHistory[index];
-              final bool isFirstDayItem = index == 0 || 
-                  !_isSameDay(_watchHistory[index-1]['lastWatched'], historyItem['lastWatched']);
-              
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Tarih başlığı
-                  if (isFirstDayItem)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8, top: 16, bottom: 8),
-                      child: Text(
-                        _formatDateHeader(historyItem['lastWatched']),
-                        style: const TextStyle(
-                          color: Colors.blue,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    
-                  // Video kartı
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[850],
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 3,
-                          offset: const Offset(0, 1),
-                        ),
-                      ],
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => _openVideoFromHistory(historyItem),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Video küçük resmi
-                              Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: SizedBox(
-                                      width: 90,
-                                      height: 60,
-                                      child: historyItem['thumbnailUrl'] != null ?
-                                        Image.network(
-                                          historyItem['thumbnailUrl'],
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (context, error, _) => Container(
-                                            color: Colors.grey[700],
-                                            child: const Icon(Icons.movie, color: Colors.white54),
-                                          ),
-                                        ) : 
-                                        Container(
-                                          color: Colors.grey[700],
-                                          child: const Icon(Icons.movie, color: Colors.white54),
-                                        ),
-                                    ),
-                                  ),
-                                  // İzleme sayısı göstergesi
-                                  if ((historyItem['watchCount'] ?? 0) > 1)
-                                    Positioned(
-                                      right: 5,
-                                      bottom: 5,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.7),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: Text(
-                                          '${historyItem['watchCount']}x',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              
-                              const SizedBox(width: 12),
-                              
-                              // Video bilgileri
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      historyItem['videoTitle'] ?? 'Bilinmeyen Video',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
-                                        Icon(Icons.schedule, size: 14, color: Colors.grey[400]),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          _formatTime(historyItem['lastWatched']),
-                                          style: TextStyle(
-                                            color: Colors.grey[400],
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              
-                              // İşlem butonları
-                              Column(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.play_circle_outline, color: Colors.blue, size: 22),
-                                    onPressed: () => _openVideoFromHistory(historyItem),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    splashRadius: 20,
-                                  ),
-                                  const SizedBox(height: 6),
-                                  IconButton(
-                                    icon: const Icon(Icons.close, color: Colors.red, size: 18),
-                                    onPressed: () => _deleteWatchHistoryItem(historyItem['id']),
-                                    padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(),
-                                    splashRadius: 18,
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  // İzleme geçmişi videosunu açma metodu - artık eski yenileme kaldırıldı
+  // İzleme geçmişi videosunu açma - tam parametreli versiyon
   void _openVideoFromHistory(Map<String, dynamic> historyItem) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => EpisodeDetailsPage(
-          videoUrl: historyItem['videoUrl'],
-          episodeTitle: historyItem['videoTitle'] ?? 'Video',
+          videoUrl: historyItem['videoUrl'] ?? '',
+          episodeTitle: historyItem['title'] ?? historyItem['videoTitle'] ?? 'Bilinmeyen Video',
           thumbnailUrl: historyItem['thumbnailUrl'],
           seriesId: historyItem['seriesId'],
-          episodeId: historyItem['videoId'],
+          episodeId: historyItem['episodeId'],
+          seasonIndex: historyItem['seasonIndex'],
+          episodeIndex: historyItem['episodeIndex'],
         ),
       ),
     );
-    // Artık .then içinde yenilemeye gerek yok - stream otomatik güncelliyor
   }
 
   // İzleme geçmişinden tek bir öğeyi silme
@@ -996,6 +849,48 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     return date1.year == date2.year && 
            date1.month == date2.month && 
            date1.day == date2.day;
+  }
+
+  // profile_page.dart dosyasında favoriler stream'ini güncelleyin
+  Stream<List<Map<String, dynamic>>> _getFavoritesStream() {
+    if (_auth.currentUser == null) {
+      return Stream.value([]);
+    }
+
+    return _firestore
+        .collection('users')
+        .doc(_auth.currentUser!.uid)
+        .collection('favorites')
+        .orderBy('addedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    });
+  }
+
+  // profile_page.dart dosyasında izleme geçmişi stream'ini güncelleyin
+  Stream<List<Map<String, dynamic>>> _getWatchHistoryStream() {
+    if (_auth.currentUser == null) {
+      return Stream.value([]);
+    }
+
+    return _firestore
+        .collection('users')
+        .doc(_auth.currentUser!.uid)
+        .collection('watchHistory')
+        .orderBy('lastWatched', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    });
   }
 
   @override

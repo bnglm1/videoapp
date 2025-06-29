@@ -224,18 +224,38 @@ class _SeasonListPageState extends State<SeasonListPage> {
                           elevation: 4,
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
-                            onTap: () {
+                            onTap: () async {
                               if (episode.videoUrl.isNotEmpty) {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => EpisodeDetailsPage(
-                                      videoUrl: episode.videoUrl,
-                                      episodeTitle: episode.title,
-                                      thumbnailUrl: episode.thumbnail,
+                                // Mevcut sezonun tüm bölümlerini episodeList olarak hazırla
+                                final currentSeasonEpisodes = widget.series.seasons[_selectedSeasonIndex].episodes;
+                                final episodeList = currentSeasonEpisodes.map((ep) => {
+                                  'videoUrl': ep.videoUrl,
+                                  'title': ep.title,
+                                  'thumbnail': ep.thumbnail,
+                                  'episodeId': ep.title, // episodeId olarak title kullanıyoruz
+                                }).toList();
+                                
+                                // Mevcut bölümün index'ini bul
+                                final currentIndex = episodeIndex; // Zaten doğru index
+                                
+                                if (mounted) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => EpisodeDetailsPage(
+                                        videoUrl: episode.videoUrl,
+                                        episodeTitle: episode.title,
+                                        thumbnailUrl: episode.thumbnail,
+                                        seriesId: widget.series.title,
+                                        episodeId: episode.title, // episodeId parametresini ekliyoruz
+                                        episodeList: episodeList,
+                                        currentIndex: currentIndex,
+                                        seasonIndex: widget.series.seasons[_selectedSeasonIndex].seasonNumber,
+                                        episodeIndex: episodeIndex,
+                                      ),
                                     ),
-                                  ),
-                                );
+                                  );
+                                }
                               } else {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(

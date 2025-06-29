@@ -5,13 +5,15 @@ import 'package:videoapp/screens/privacy_policy_screen.dart';
 import 'package:videoapp/screens/request_box.dart';
 import 'package:videoapp/screens/season_list_page.dart';
 import 'package:videoapp/screens/category_screen.dart';
-import 'package:videoapp/models/firebase_service.dart';
+import 'package:videoapp/models/github_service.dart'; // GitHub servisi
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:videoapp/screens/sign_in_page.dart';
 import 'package:videoapp/screens/profile_page.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+// Gerekirse ekleyin
 
 class VideoListPage extends StatefulWidget {
   const VideoListPage({super.key});
@@ -21,7 +23,8 @@ class VideoListPage extends StatefulWidget {
 }
 
 class _VideoListPageState extends State<VideoListPage> with SingleTickerProviderStateMixin {
-  final FirebaseService _firebaseService = FirebaseService();
+  final GitHubService _githubService = GitHubService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance; // BU SATIRI EKLEYİN
   List<Series> seriesList = [];
   bool isLoading = true;
   Map<String, List<Series>> groupedSeriesList = {};
@@ -124,33 +127,92 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
 
   Future<void> _loadSeries() async {
     try {
-      final allSeries = await _firebaseService.fetchSeries();
+      print("Seri yükleme başlıyor...");
+      final allSeries = await _githubService.fetchSeries();
+      
+      print("Alınan seri sayısı: ${allSeries.length}");
 
       // Serileri `type` özelliğine göre gruplandır
       Map<String, List<Series>> groupedSeries = {
         "Önerilenler": [],
         "AnimetoonTr İçerikleri": [],
         "Yeni Eklenenler": [],
-        "Filmler": [], // Yeni eklenen kategori
+        "Filmler": [],
       };
 
       for (var series in allSeries) {
+        print("İşlenen seri: ${series.title}, Types: ${series.type}");
         for (var type in series.type) {
           if (groupedSeries.containsKey(type)) {
             groupedSeries[type]!.add(series);
+            print("  -> $type kategorisine eklendi");
+          } else {
+            print("  -> Bilinmeyen kategori: $type");
           }
         }
       }
+
+      // Debug: Kategori bazında seri sayıları
+      groupedSeries.forEach((key, value) {
+        print("$key: ${value.length} seri");
+      });
 
       setState(() {
         seriesList = allSeries;
         groupedSeriesList = groupedSeries;
         isLoading = false;
       });
+      
+      if (allSeries.isEmpty) {
+        print("Uyarı: Hiç seri yüklenmedi!");
+        _showErrorDialog("Veri Yüklenemedi", "GitHub'dan hiçbir seri verisi alınamadı. Lütfen internet bağlantınızı kontrol edin.");
+      }
     } catch (e) {
       print("Veri alınırken hata oluştu: $e");
       setState(() => isLoading = false);
+      _showErrorDialog("Bağlantı Hatası", "Veri yüklenirken bir hata oluştu: $e");
     }
+  }
+  
+  void _showErrorDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: Text(
+            title,
+            style: const TextStyle(color: Colors.white),
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Tamam',
+                style: TextStyle(color: Colors.blue),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                setState(() => isLoading = true);
+                _loadSeries(); // Tekrar dene
+              },
+              child: const Text(
+                'Tekrar Dene',
+                style: TextStyle(color: Colors.orange),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _loadAppVersion() async {
@@ -539,6 +601,8 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
             _buildSectionTitle("Filmler"),
             _buildHorizontalList(groupedSeriesList["Filmler"]!),
           ],
+          // Popüler Bölümler bölümü eklendi
+          _buildPopularEpisodesSection(),
           const SizedBox(height: 20.0),
         ],
       ),
@@ -690,5 +754,131 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
       ),
     );
   }
+
+  // home_page.dart dosyasına popüler bölümler bölümü ekleyin
+  Widget _buildPopularEpisodesSection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'Popüler Bölümler',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 200,
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _firestore
+                  .collection('videos')
+                  .orderBy('views', descending: true)
+                  .limit(5) // 10'dan 5'e değiştirildi
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator(color: Colors.blue));
+                }
+
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'Henüz popüler bölüm yok',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: snapshot.data!.docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = snapshot.data!.docs[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final title = data['title'] ?? 'Bilinmeyen Bölüm';
+                    final views = (data['views'] as num?)?.toInt() ?? 0;
+
+                    return Container(
+                      width: 150,
+                      margin: const EdgeInsets.only(right: 12),
+                      child: Card(
+                        color: Colors.grey[850],
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[800],
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.video_library,
+                                    color: Colors.white54,
+                                    size: 32,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                title,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const Spacer(),
+                              Row(
+                                children: [
+                                  const Icon(Icons.visibility, size: 12, color: Colors.blue),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _formatViewCount(views),
+                                    style: const TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 String _appVersion = 'v1.0.0'; // Default value
+
+// Büyük sayıları formatlamak için yardımcı metod
+String _formatViewCount(int viewCount) {
+  if (viewCount >= 1000000) {
+    return '${(viewCount / 1000000).toStringAsFixed(1)}M';
+  } else if (viewCount >= 1000) {
+    return '${(viewCount / 1000).toStringAsFixed(1)}K';
+  } else {
+    return viewCount.toString();
+  }
+}
