@@ -80,7 +80,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
   // Yeni state değişkenleri ekleyin
   int _localViewCount = 0;
-  bool _isViewCountLoaded = false;
   
   @override
   void initState() {
@@ -98,17 +97,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     _loadSeriesTitleFromGitHub();
     _loadComments();
     _loadViewCount(); // İzlenme sayısını hemen yükle
-  }
-
-  // Firestore bağlantısını test et
-  Future<void> _testFirestoreConnection() async {
-    try {
-      print('Firestore bağlantısı test ediliyor...');
-      final testDoc = await _firestore.collection('test').doc('test').get();
-      print('Firestore bağlantısı başarılı: ${testDoc.exists}');
-    } catch (e) {
-      print('Firestore bağlantı hatası: $e');
-    }
   }
 
   @override
@@ -801,12 +789,8 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
       // Tekli artış (1)
       const int increment = 1;
       
-      // Local state'i hemen güncelle (görsel olarak anında artış)
-      if (mounted) {
-        setState(() {
-          _localViewCount += increment;
-        });
-      }
+      // Local state'i artırmıyoruz, sadece Firestore'u güncelliyoruz
+      // Kullanıcı ekrandan çıkıp tekrar girdiğinde artışı görebilecek
       
       // Firestore'u arka planda güncelle
       await _firestore.runTransaction((transaction) async {
@@ -843,14 +827,12 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         if (mounted) {
           setState(() {
             _localViewCount = viewCount;
-            _isViewCountLoaded = true;
           });
         }
       } else {
         if (mounted) {
           setState(() {
             _localViewCount = 0;
-            _isViewCountLoaded = true;
           });
         }
       }
@@ -859,7 +841,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
       if (mounted) {
         setState(() {
           _localViewCount = 0;
-          _isViewCountLoaded = true;
         });
       }
     }
@@ -971,42 +952,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   }
 
   // Firestore test fonksiyonu (debug amaçlı)
-  Future<void> _testFirestore() async {
-    try {
-      print('Test Firestore fonksiyonu çağrıldı.');
-      final testDoc = await _firestore.collection('test').doc('test').get();
-      if (testDoc.exists) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Firestore bağlantısı başarılı!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Firestore bağlantısı var, ancak test dokümanı yok.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      print('Firestore test hatası: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Firestore test hatası: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
   // Zaman formatı
   String _formatDuration(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
@@ -1373,19 +1318,10 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                             children: [
                               const Icon(Icons.visibility, size: 16, color: Colors.blue),
                               const SizedBox(width: 4),
-                              _isViewCountLoaded
-                                  ? Text(
-                                      "${_formatViewCount(_localViewCount)} görüntüleme",
-                                      style: TextStyle(color: Colors.grey[400], fontSize: 14),
-                                    )
-                                  : const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                                      ),
-                                    ),
+                              Text(
+                                "${_formatViewCount(_localViewCount)} görüntüleme",
+                                style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                              ),
                             ],
                           ),
                         ],

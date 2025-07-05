@@ -29,6 +29,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
   bool isLoading = true;
   Map<String, List<Series>> groupedSeriesList = {};
   int _selectedIndex = 0;
+  String _appVersion = 'v1.0.0'; // SINIF İÇİNE TAŞINDI
   
   // Arama özelliği için yeni değişkenler
   bool _isSearching = false;
@@ -38,7 +39,6 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
   
   // Banner reklam için değişken
   late BannerAd _bannerAd;
-  bool _isBannerAdLoaded = false;
 
   late AnimationController _animationController;
 
@@ -115,9 +115,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
       request: const AdRequest(),
       listener: BannerAdListener(
         onAdLoaded: (Ad ad) {
-          setState(() {
-            _isBannerAdLoaded = true;
-          });
+          // Banner yüklendi
         },
       ),
     );
@@ -584,6 +582,8 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
         children: [
           _buildFeaturedContent(),
           const SizedBox(height: 16.0),
+          // Popüler Bölümler bölümü EN ÜSTE taşındı
+          _buildPopularEpisodesSection(),
           if (groupedSeriesList["Önerilenler"]!.isNotEmpty) ...[
             _buildSectionTitle("Önerilenler"),
             _buildHorizontalList(groupedSeriesList["Önerilenler"]!),
@@ -596,13 +596,10 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
             _buildSectionTitle("Yeni Eklenenler"),
             _buildHorizontalList(groupedSeriesList["Yeni Eklenenler"]!),
           ],
-          // Yeni eklenen Filmler kategorisi
           if (groupedSeriesList["Filmler"]!.isNotEmpty) ...[
             _buildSectionTitle("Filmler"),
             _buildHorizontalList(groupedSeriesList["Filmler"]!),
           ],
-          // Popüler Bölümler bölümü eklendi
-          _buildPopularEpisodesSection(),
           const SizedBox(height: 20.0),
         ],
       ),
@@ -775,12 +772,12 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 200,
+            height: 240, // Yüksekliği daha da artırdık
             child: StreamBuilder<QuerySnapshot>(
               stream: _firestore
                   .collection('videos')
                   .orderBy('views', descending: true)
-                  .limit(5) // 10'dan 5'e değiştirildi
+                  .limit(5)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -807,41 +804,93 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                     final views = (data['views'] as num?)?.toInt() ?? 0;
 
                     return Container(
-                      width: 150,
+                      width: 190, // Genişliği daha da artırdık
                       margin: const EdgeInsets.only(right: 12),
                       child: Card(
                         color: Colors.grey[850],
+                        elevation: 4,
                         child: Padding(
                           padding: const EdgeInsets.all(12),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                height: 80,
+                              // Sıralama numarası ve görsel alanı
+                              Stack(
+                                children: [
+                                  Container(
+                                    height: 100, // Yüksekliği artırdık
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[800],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Center(
+                                      child: Icon(
+                                        Icons.video_library,
+                                        color: Colors.white54,
+                                        size: 32,
+                                      ),
+                                    ),
+                                  ),
+                                  // Sıralama numarası sağ üstte
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: _getRankColor(index + 1),
+                                        borderRadius: BorderRadius.circular(12),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.3),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Text(
+                                        '#${index + 1}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              
+                              // Bölüm başlığı - Tooltip ile tam metin gösterimi
+                              Tooltip(
+                                message: title, // Tam metni tooltip'te göster
+                                textStyle: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey[800],
+                                  color: Colors.black87,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Center(
-                                  child: Icon(
-                                    Icons.video_library,
-                                    color: Colors.white54,
-                                    size: 32,
+                                child: SizedBox(
+                                  height: 65, // Başlık alanını büyüttük
+                                  child: Text(
+                                    title,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15, // Font boyutunu artırdık
+                                      fontWeight: FontWeight.w600, // Daha kalın yaptık
+                                      height: 1.3, // Satır aralığını artırdık
+                                    ),
+                                    maxLines: 4, // 4 satıra çıkardık
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ),
+                              
                               const SizedBox(height: 8),
-                              Text(
-                                title,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const Spacer(),
+                              // Sadece izlenme sayısı
                               Row(
                                 children: [
                                   const Icon(Icons.visibility, size: 12, color: Colors.blue),
@@ -869,16 +918,33 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
       ),
     );
   }
-}
-String _appVersion = 'v1.0.0'; // Default value
 
-// Büyük sayıları formatlamak için yardımcı metod
-String _formatViewCount(int viewCount) {
-  if (viewCount >= 1000000) {
-    return '${(viewCount / 1000000).toStringAsFixed(1)}M';
-  } else if (viewCount >= 1000) {
-    return '${(viewCount / 1000).toStringAsFixed(1)}K';
-  } else {
-    return viewCount.toString();
+  // View count'ı okunabilir formata çevirir
+  String _formatViewCount(int views) {
+    if (views >= 1000000) {
+      return '${(views / 1000000).toStringAsFixed(1)}M';
+    } else if (views >= 1000) {
+      return '${(views / 1000).toStringAsFixed(1)}B';
+    } else {
+      return views.toString();
+    }
+  }
+
+  // Sıralama rengini belirle
+  Color _getRankColor(int rank) {
+    switch (rank) {
+      case 1:
+        return Colors.amber; // Altın
+      case 2:
+        return Colors.grey[400]!; // Gümüş
+      case 3:
+        return Colors.orange[800]!; // Bronz
+      case 4:
+        return Colors.blue;
+      case 5:
+        return Colors.green;
+      default:
+        return Colors.grey;
+    }
   }
 }

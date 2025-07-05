@@ -16,6 +16,8 @@ class _SeasonListPageState extends State<SeasonListPage> {
   int _selectedSeasonIndex = 0; // Seçili sezon için değişken ekledik
   late BannerAd _bannerAd;
   bool _isBannerAdLoaded = false;
+  InterstitialAd? _interstitialAd;
+  bool _isAdLoaded = false;
   final ScrollController _scrollController = ScrollController();
   double _titleAlignment = 0.0; // 0.0 = left, 1.0 = center
 
@@ -23,14 +25,37 @@ class _SeasonListPageState extends State<SeasonListPage> {
   void initState() {
     super.initState();
     _loadBannerAd();
+    _loadInterstitialAd();
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _bannerAd.dispose();
+    _interstitialAd?.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // Interstitial reklam yükleme
+  Future<void> _loadInterstitialAd() async {
+    _interstitialAd?.dispose();
+    _isAdLoaded = false;
+    
+    await InterstitialAd.load(
+      adUnitId: 'ca-app-pub-7690250755006392/8813706277',
+      request: const AdRequest(),
+      adLoadCallback: InterstitialAdLoadCallback(
+        onAdLoaded: (InterstitialAd ad) {
+          _interstitialAd = ad;
+          _isAdLoaded = true;
+        },
+        onAdFailedToLoad: (LoadAdError error) {
+          print("Reklam yüklenemedi: $error");
+          _isAdLoaded = false;
+        },
+      ),
+    );
   }
 
   void _loadBannerAd() {
@@ -57,6 +82,61 @@ class _SeasonListPageState extends State<SeasonListPage> {
     setState(() {
       _titleAlignment = (offset / maxOffset).clamp(0.0, 1.0);
     });
+  }
+
+  // Reklam göster veya direkt git
+  void _showAdOrNavigateToEpisode(Episode episode, int episodeIndex) async {
+    if (_interstitialAd != null) {
+      _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _navigateToEpisodeDetails(episode, episodeIndex);
+          _loadInterstitialAd(); // Sonraki seferler için yeni reklam yükle
+        },
+        onAdFailedToShowFullScreenContent: (ad, error) {
+          ad.dispose();
+          _navigateToEpisodeDetails(episode, episodeIndex);
+          _loadInterstitialAd(); // Sonraki seferler için yeni reklam yükle
+        },
+      );
+      _interstitialAd!.show();
+    } else {
+      // Reklam yoksa direkt git
+      _navigateToEpisodeDetails(episode, episodeIndex);
+    }
+  }
+
+  // Episode detayına git
+  void _navigateToEpisodeDetails(Episode episode, int episodeIndex) {
+    // Tüm bölümleri listeye dönüştür (önceki/sonraki navigasyon için)
+    final episodeList = widget.series.seasons[_selectedSeasonIndex].episodes.map((ep) => {
+      'title': ep.title,
+      'videoUrl': ep.videoUrl,
+      'thumbnail': ep.thumbnail,
+      'episodeId': ep.title, // episodeId olarak title kullanıyoruz
+    }).toList();
+    
+    // Mevcut bölümün index'ini bul
+    final currentIndex = episodeIndex; // Zaten doğru index
+    
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => EpisodeDetailsPage(
+            videoUrl: episode.videoUrl,
+            episodeTitle: episode.title,
+            thumbnailUrl: episode.thumbnail,
+            seriesId: widget.series.title,
+            episodeId: episode.title, // episodeId parametresini ekliyoruz
+            episodeList: episodeList,
+            currentIndex: currentIndex,
+            seasonIndex: widget.series.seasons[_selectedSeasonIndex].seasonNumber,
+            episodeIndex: episodeIndex,
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -226,36 +306,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                             borderRadius: BorderRadius.circular(12),
                             onTap: () async {
                               if (episode.videoUrl.isNotEmpty) {
-                                // Mevcut sezonun tüm bölümlerini episodeList olarak hazırla
-                                final currentSeasonEpisodes = widget.series.seasons[_selectedSeasonIndex].episodes;
-                                final episodeList = currentSeasonEpisodes.map((ep) => {
-                                  'videoUrl': ep.videoUrl,
-                                  'title': ep.title,
-                                  'thumbnail': ep.thumbnail,
-                                  'episodeId': ep.title, // episodeId olarak title kullanıyoruz
-                                }).toList();
-                                
-                                // Mevcut bölümün index'ini bul
-                                final currentIndex = episodeIndex; // Zaten doğru index
-                                
-                                if (mounted) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => EpisodeDetailsPage(
-                                        videoUrl: episode.videoUrl,
-                                        episodeTitle: episode.title,
-                                        thumbnailUrl: episode.thumbnail,
-                                        seriesId: widget.series.title,
-                                        episodeId: episode.title, // episodeId parametresini ekliyoruz
-                                        episodeList: episodeList,
-                                        currentIndex: currentIndex,
-                                        seasonIndex: widget.series.seasons[_selectedSeasonIndex].seasonNumber,
-                                        episodeIndex: episodeIndex,
-                                      ),
-                                    ),
-                                  );
-                                }
+                                _showAdOrNavigateToEpisode(episode, episodeIndex);
                               } else {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
