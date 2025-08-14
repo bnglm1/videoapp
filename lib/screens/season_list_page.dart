@@ -41,7 +41,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
   Future<void> _loadInterstitialAd() async {
     _interstitialAd?.dispose();
     _isAdLoaded = false;
-    
+
     await InterstitialAd.load(
       adUnitId: 'ca-app-pub-7690250755006392/8813706277',
       request: const AdRequest(),
@@ -77,7 +77,8 @@ class _SeasonListPageState extends State<SeasonListPage> {
 
   void _onScroll() {
     final double offset = _scrollController.offset;
-    const double maxOffset = 200.0; // Başlığın ne kadar scroll'da ortaya geleceği
+    const double maxOffset =
+        200.0; // Başlığın ne kadar scroll'da ortaya geleceği
 
     setState(() {
       _titleAlignment = (offset / maxOffset).clamp(0.0, 1.0);
@@ -109,30 +110,29 @@ class _SeasonListPageState extends State<SeasonListPage> {
   // Episode detayına git
   void _navigateToEpisodeDetails(Episode episode, int episodeIndex) {
     // Tüm bölümleri listeye dönüştür (önceki/sonraki navigasyon için)
-    final episodeList = widget.series.seasons[_selectedSeasonIndex].episodes.map((ep) => {
-      'title': ep.title,
-      'videoUrl': ep.videoUrl,
-      'thumbnail': ep.thumbnail,
-      'episodeId': ep.title, // episodeId olarak title kullanıyoruz
-    }).toList();
-    
+    final episodeList = widget.series.seasons[_selectedSeasonIndex].episodes
+        .map((ep) => ep.toNavigationMap())
+        .toList();
+
     // Mevcut bölümün index'ini bul
     final currentIndex = episodeIndex; // Zaten doğru index
-    
+
     if (mounted) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => EpisodeDetailsPage(
-            videoUrl: episode.videoUrl,
+            videoUrl: episode.videoUrl, // Ana video URL'ini kullan
             episodeTitle: episode.title,
             thumbnailUrl: episode.thumbnail,
             seriesId: widget.series.title,
             episodeId: episode.title, // episodeId parametresini ekliyoruz
             episodeList: episodeList,
             currentIndex: currentIndex,
-            seasonIndex: widget.series.seasons[_selectedSeasonIndex].seasonNumber,
+            seasonIndex:
+                widget.series.seasons[_selectedSeasonIndex].seasonNumber,
             episodeIndex: episodeIndex,
+            episode: episode.toNavigationMap(), // toNavigationMap kullan
           ),
         ),
       );
@@ -224,7 +224,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                     ),
                   ),
                 ),
-                
+
                 // Yeni Modern Sezon Seçici
                 SliverToBoxAdapter(
                   child: Container(
@@ -233,7 +233,8 @@ class _SeasonListPageState extends State<SeasonListPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Padding(
-                          padding: EdgeInsets.only(left: 16.0, right: 16.0, bottom: 12.0),
+                          padding: EdgeInsets.only(
+                              left: 16.0, right: 16.0, bottom: 12.0),
                           child: Text(
                             'Sezonlar',
                             style: TextStyle(
@@ -252,7 +253,8 @@ class _SeasonListPageState extends State<SeasonListPage> {
                             itemBuilder: (context, index) {
                               final isSelected = _selectedSeasonIndex == index;
                               return Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4.0),
                                 child: GestureDetector(
                                   onTap: () {
                                     setState(() {
@@ -260,21 +262,30 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                     });
                                   },
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16),
                                     alignment: Alignment.center,
                                     decoration: BoxDecoration(
-                                      color: isSelected ? Colors.blueAccent : Colors.grey[850],
+                                      color: isSelected
+                                          ? Colors.blueAccent
+                                          : Colors.grey[850],
                                       borderRadius: BorderRadius.circular(25),
                                       border: Border.all(
-                                        color: isSelected ? Colors.blueAccent : Colors.grey[700]!,
+                                        color: isSelected
+                                            ? Colors.blueAccent
+                                            : Colors.grey[700]!,
                                         width: 1,
                                       ),
                                     ),
                                     child: Text(
                                       'Sezon ${widget.series.seasons[index].seasonNumber}',
                                       style: TextStyle(
-                                        color: isSelected ? Colors.black : Colors.white,
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                        color: isSelected
+                                            ? Colors.black
+                                            : Colors.white,
+                                        fontWeight: isSelected
+                                            ? FontWeight.bold
+                                            : FontWeight.normal,
                                       ),
                                     ),
                                   ),
@@ -287,15 +298,17 @@ class _SeasonListPageState extends State<SeasonListPage> {
                     ),
                   ),
                 ),
-                
+
                 // Seçilen sezonun bölümleri
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, episodeIndex) {
-                      final episode = widget.series.seasons[_selectedSeasonIndex].episodes[episodeIndex];
-                      
+                      final episode = widget.series
+                          .seasons[_selectedSeasonIndex].episodes[episodeIndex];
+
                       return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12.0, vertical: 6.0),
                         child: Card(
                           color: Colors.grey[850],
                           shape: RoundedRectangleBorder(
@@ -306,11 +319,13 @@ class _SeasonListPageState extends State<SeasonListPage> {
                             borderRadius: BorderRadius.circular(12),
                             onTap: () async {
                               if (episode.videoUrl.isNotEmpty) {
-                                _showAdOrNavigateToEpisode(episode, episodeIndex);
+                                _showAdOrNavigateToEpisode(
+                                    episode, episodeIndex);
                               } else {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text("Videoya ait link bulunamadı"),
+                                    content:
+                                        Text("Videoya ait link bulunamadı"),
                                     backgroundColor: Colors.red,
                                   ),
                                 );
@@ -330,12 +345,15 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                           width: 120,
                                           height: 80,
                                           fit: BoxFit.cover,
-                                          errorBuilder: (context, error, stackTrace) {
+                                          errorBuilder:
+                                              (context, error, stackTrace) {
                                             return Container(
                                               width: 120,
                                               height: 80,
                                               color: Colors.grey,
-                                              child: const Icon(Icons.broken_image, color: Colors.white),
+                                              child: const Icon(
+                                                  Icons.broken_image,
+                                                  color: Colors.white),
                                             );
                                           },
                                         ),
@@ -345,8 +363,10 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                           left: 0,
                                           right: 0,
                                           child: Container(
-                                            color: Colors.black.withOpacity(0.7),
-                                            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                                            color:
+                                                Colors.black.withOpacity(0.7),
+                                            padding: const EdgeInsets.symmetric(
+                                                vertical: 2, horizontal: 4),
                                             child: Text(
                                               'Bölüm ${episodeIndex + 1}',
                                               style: const TextStyle(
@@ -361,13 +381,15 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                       ],
                                     ),
                                   ),
-                                  
+
                                   // Bölüm bilgileri
                                   Expanded(
                                     child: Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12),
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             episode.title,
@@ -393,7 +415,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                       ),
                                     ),
                                   ),
-                                  
+
                                   // Oynat butonu
                                   const Icon(
                                     Icons.play_circle_fill,
@@ -407,7 +429,8 @@ class _SeasonListPageState extends State<SeasonListPage> {
                         ),
                       );
                     },
-                    childCount: widget.series.seasons[_selectedSeasonIndex].episodes.length,
+                    childCount: widget
+                        .series.seasons[_selectedSeasonIndex].episodes.length,
                   ),
                 ),
               ],

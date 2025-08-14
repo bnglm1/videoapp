@@ -22,21 +22,23 @@ class VideoListPage extends StatefulWidget {
   _VideoListPageState createState() => _VideoListPageState();
 }
 
-class _VideoListPageState extends State<VideoListPage> with SingleTickerProviderStateMixin {
+class _VideoListPageState extends State<VideoListPage>
+    with SingleTickerProviderStateMixin {
   final GitHubService _githubService = GitHubService();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance; // BU SATIRI EKLEYİN
+  final FirebaseFirestore _firestore =
+      FirebaseFirestore.instance; // BU SATIRI EKLEYİN
   List<Series> seriesList = [];
   bool isLoading = true;
   Map<String, List<Series>> groupedSeriesList = {};
   int _selectedIndex = 0;
   String _appVersion = 'v1.0.0'; // SINIF İÇİNE TAŞINDI
-  
+
   // Arama özelliği için yeni değişkenler
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   List<Series> _searchResults = [];
   bool _showSearchResults = false;
-  
+
   // Banner reklam için değişken
   late BannerAd _bannerAd;
 
@@ -48,7 +50,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
     _loadSeries();
     _loadBannerAd();
     _loadAppVersion();
-    
+
     // Arama kontrolcüsüne dinleyici ekle
     _searchController.addListener(_onSearchChanged);
 
@@ -66,12 +68,12 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
     _animationController.dispose();
     super.dispose();
   }
-  
+
   // Arama değeri değiştiğinde çağrılır
   void _onSearchChanged() {
     _performSearch(_searchController.text);
   }
-  
+
   // Arama işlemini gerçekleştirir
   void _performSearch(String query) {
     if (query.isEmpty) {
@@ -81,18 +83,18 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
       });
       return;
     }
-    
+
     final queryLower = query.toLowerCase();
     final results = seriesList.where((series) {
       return series.title.toLowerCase().contains(queryLower);
     }).toList();
-    
+
     setState(() {
       _searchResults = results;
       _showSearchResults = true;
     });
   }
-  
+
   // Arama modunu aç/kapat
   void _toggleSearch() {
     setState(() {
@@ -110,7 +112,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
   // Banner Reklamı Yükleme
   void _loadBannerAd() {
     _bannerAd = BannerAd(
-      adUnitId: 'cca-app-pub-7690250755006392/7705897910', 
+      adUnitId: 'cca-app-pub-7690250755006392/7705897910',
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -127,7 +129,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
     try {
       print("Seri yükleme başlıyor...");
       final allSeries = await _githubService.fetchSeries();
-      
+
       print("Alınan seri sayısı: ${allSeries.length}");
 
       // Serileri `type` özelliğine göre gruplandır
@@ -160,18 +162,20 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
         groupedSeriesList = groupedSeries;
         isLoading = false;
       });
-      
+
       if (allSeries.isEmpty) {
         print("Uyarı: Hiç seri yüklenmedi!");
-        _showErrorDialog("Veri Yüklenemedi", "GitHub'dan hiçbir seri verisi alınamadı. Lütfen internet bağlantınızı kontrol edin.");
+        _showErrorDialog("Veri Yüklenemedi",
+            "GitHub'dan hiçbir seri verisi alınamadı. Lütfen internet bağlantınızı kontrol edin.");
       }
     } catch (e) {
       print("Veri alınırken hata oluştu: $e");
       setState(() => isLoading = false);
-      _showErrorDialog("Bağlantı Hatası", "Veri yüklenirken bir hata oluştu: $e");
+      _showErrorDialog(
+          "Bağlantı Hatası", "Veri yüklenirken bir hata oluştu: $e");
     }
   }
-  
+
   void _showErrorDialog(String title, String message) {
     showDialog(
       context: context,
@@ -226,7 +230,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
       _buildHomeScreen(),
       CategoryScreen(
         allSeries: seriesList,
-        categoryImages: const {}, 
+        categoryImages: const {},
       ),
       const ProfilePage(),
     ];
@@ -237,7 +241,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
     return Scaffold(
       backgroundColor: Colors.grey[900],
       appBar: AppBar(
-        title: _isSearching 
+        title: _isSearching
             ? TextField(
                 controller: _searchController,
                 autofocus: true,
@@ -329,34 +333,45 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                             ),
                           ),
                           ListTile(
-                            leading: const Icon(Icons.privacy_tip, color: Colors.white),
-                            title: const Text('Gizlilik Politikası', style: TextStyle(color: Colors.white)),
+                            leading: const Icon(Icons.privacy_tip,
+                                color: Colors.white),
+                            title: const Text('Gizlilik Politikası',
+                                style: TextStyle(color: Colors.white)),
                             onTap: () {
                               Navigator.push(
                                 context,
-                                MaterialPageRoute(builder: (context) => const PrivacyPolicyPage()),
+                                MaterialPageRoute(
+                                    builder: (context) =>
+                                        const PrivacyPolicyPage()),
                               );
                             },
                           ),
                           ListTile(
-                            leading: const Icon(Icons.feedback, color: Colors.white),
-                            title: const Text('İstek Kutusu', style: TextStyle(color: Colors.white)),
+                            leading:
+                                const Icon(Icons.feedback, color: Colors.white),
+                            title: const Text('İstek Kutusu',
+                                style: TextStyle(color: Colors.white)),
                             onTap: () {
                               Navigator.push(
                                 context,
-                                MaterialPageRoute(builder: (context) => const RequestBoxPage()),
+                                MaterialPageRoute(
+                                    builder: (context) =>
+                                        const RequestBoxPage()),
                               );
                             },
                           ),
                           // Çıkış yapma butonu
                           ListTile(
-                            leading: const Icon(Icons.logout, color: Colors.white),
-                            title: const Text('Çıkış Yap', style: TextStyle(color: Colors.white)),
+                            leading:
+                                const Icon(Icons.logout, color: Colors.white),
+                            title: const Text('Çıkış Yap',
+                                style: TextStyle(color: Colors.white)),
                             onTap: () async {
                               await AuthService().signOut();
                               if (mounted) {
                                 Navigator.of(context).pushAndRemoveUntil(
-                                  MaterialPageRoute(builder: (_) => const SignInPage()),
+                                  MaterialPageRoute(
+                                      builder: (_) => const SignInPage()),
                                   (route) => false,
                                 );
                               }
@@ -441,7 +456,9 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
           if (!_showSearchResults)
             Expanded(
               child: isLoading
-                  ? const Center(child: CircularProgressIndicator(color: Colors.blue)) // Renk değiştirildi
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                          color: Colors.blue)) // Renk değiştirildi
                   : IndexedStack(
                       index: _selectedIndex,
                       children: _screens(),
@@ -496,7 +513,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
       ),
     );
   }
-  
+
   // Arama sonuçlarını göster
   Widget _buildSearchResults() {
     return Container(
@@ -519,7 +536,8 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
               ],
             ),
             child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               leading: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: CachedNetworkImage(
@@ -529,7 +547,9 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                   fit: BoxFit.cover,
                   placeholder: (context, url) => Container(
                     color: Colors.grey[800],
-                    child: const Center(child: CircularProgressIndicator(color: Colors.blue)), // Renk eklendi
+                    child: const Center(
+                        child: CircularProgressIndicator(
+                            color: Colors.blue)), // Renk eklendi
                   ),
                   errorWidget: (context, url, error) => const Icon(Icons.error),
                 ),
@@ -543,8 +563,8 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                 ),
               ),
               subtitle: Text(
-                series.description.length > 70 
-                    ? '${series.description.substring(0, 70)}...' 
+                series.description.length > 70
+                    ? '${series.description.substring(0, 70)}...'
                     : series.description,
                 style: TextStyle(
                   color: Colors.grey[400],
@@ -552,7 +572,8 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                 ),
               ),
               // Sağ tarafta küçük bir 'aç' ikonu
-              trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white54, size: 16),
+              trailing: const Icon(Icons.arrow_forward_ios,
+                  color: Colors.white54, size: 16),
               onTap: () {
                 // Arama modunu kapat ve seçilen serinin sezon sayfasına git
                 setState(() {
@@ -560,7 +581,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                   _showSearchResults = false;
                   _searchController.clear();
                 });
-                
+
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -662,7 +683,10 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                         ),
                       );
                     },
-                    child: const Text("İzlemeye Başla", style: TextStyle(color: Colors.white),),
+                    child: const Text(
+                      "İzlemeye Başla",
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ),
                 ],
               ),
@@ -726,9 +750,12 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                         width: double.infinity,
                         placeholder: (context, url) => Container(
                           color: Colors.grey[800],
-                          child: const Center(child: CircularProgressIndicator(color: Colors.blue)), // Renk eklendi
+                          child: const Center(
+                              child: CircularProgressIndicator(
+                                  color: Colors.blue)), // Renk eklendi
                         ),
-                        errorWidget: (context, url, error) => const Icon(Icons.error),
+                        errorWidget: (context, url, error) =>
+                            const Icon(Icons.error),
                       ),
                     ),
                   ),
@@ -781,7 +808,8 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                   .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: Colors.blue));
+                  return const Center(
+                      child: CircularProgressIndicator(color: Colors.blue));
                 }
 
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -836,13 +864,15 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                                     top: 8,
                                     right: 8,
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
                                       decoration: BoxDecoration(
                                         color: _getRankColor(index + 1),
                                         borderRadius: BorderRadius.circular(12),
                                         boxShadow: [
                                           BoxShadow(
-                                            color: Colors.black.withOpacity(0.3),
+                                            color:
+                                                Colors.black.withOpacity(0.3),
                                             blurRadius: 4,
                                             offset: const Offset(0, 2),
                                           ),
@@ -861,7 +891,7 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                                 ],
                               ),
                               const SizedBox(height: 10),
-                              
+
                               // Bölüm başlığı - Tooltip ile tam metin gösterimi
                               Tooltip(
                                 message: title, // Tam metni tooltip'te göster
@@ -880,7 +910,8 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                                     style: const TextStyle(
                                       color: Colors.white,
                                       fontSize: 15, // Font boyutunu artırdık
-                                      fontWeight: FontWeight.w600, // Daha kalın yaptık
+                                      fontWeight:
+                                          FontWeight.w600, // Daha kalın yaptık
                                       height: 1.3, // Satır aralığını artırdık
                                     ),
                                     maxLines: 4, // 4 satıra çıkardık
@@ -888,12 +919,13 @@ class _VideoListPageState extends State<VideoListPage> with SingleTickerProvider
                                   ),
                                 ),
                               ),
-                              
+
                               const SizedBox(height: 8),
                               // Sadece izlenme sayısı
                               Row(
                                 children: [
-                                  const Icon(Icons.visibility, size: 12, color: Colors.blue),
+                                  const Icon(Icons.visibility,
+                                      size: 12, color: Colors.blue),
                                   const SizedBox(width: 4),
                                   Text(
                                     _formatViewCount(views),

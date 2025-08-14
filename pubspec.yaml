@@ -11,7 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.2
-  firebase_core: ^2.15.1
+  firebase_core: ^2.32.0
   firebase_database: ^10.2.5
   video_player: ^2.7.1
   chewie: ^1.7.1

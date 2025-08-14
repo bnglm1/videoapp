@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'dart:async';
 import 'package:videoapp/screens/sign_in_page.dart';
 import 'package:video_player/video_player.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:videoapp/models/github_service.dart';
 // Dosyanın başına ekleyin
@@ -22,6 +23,7 @@ class EpisodeDetailsPage extends StatefulWidget {
   final int? episodeIndex;
   final List<Map<String, dynamic>>? episodeList; // Bölüm listesi
   final int? currentIndex; // Mevcut bölüm index'i
+  final Map<String, dynamic>? episode; // Episode data with videoSources
 
   const EpisodeDetailsPage({
     required this.videoUrl,
@@ -33,6 +35,7 @@ class EpisodeDetailsPage extends StatefulWidget {
     this.episodeIndex,
     this.episodeList,
     this.currentIndex,
+    this.episode,
     super.key,
   });
 
@@ -41,16 +44,27 @@ class EpisodeDetailsPage extends StatefulWidget {
 }
 
 class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
+  // Kaynak değişimi animasyonu için
+  bool _isSwitchingSource = false;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final GitHubService _githubService = GitHubService();
-  
+
   // Video oynatıcı
   VideoPlayerController? _videoPlayerController;
   bool _isVideoInitialized = false;
   bool _showVideoControls = true;
   Timer? _hideVideoControlsTimer;
-  
+
+  // WebView kontrolü
+  WebViewController? _webViewController;
+  bool _isWebViewVideoPlaying = false;
+  bool _isWebViewVideoReady = false; // Add this new state variable
+
+  // Video Sources - Yeni eklenen
+  List<Map<String, dynamic>> _videoSources = [];
+  int _selectedSourceIndex = 0;
+
   // Reklamlar
   InterstitialAd? _interstitialAd;
   bool _isAdLoaded = false;
@@ -80,14 +94,268 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
   // Yeni state değişkenleri ekleyin
   int _localViewCount = 0;
-  
+
+  // WebView Video Playback Kontrol Metodları
+  Future<void> _playWebViewVideo() async {
+    if (_webViewController != null) {
+      await _webViewController!.runJavaScript('playVideo();');
+      setState(() {
+        _isWebViewVideoPlaying = true;
+      });
+    }
+  }
+
+  Future<void> _pauseWebViewVideo() async {
+    if (_webViewController != null) {
+      await _webViewController!.runJavaScript('pauseVideo();');
+      setState(() {
+        _isWebViewVideoPlaying = false;
+      });
+    }
+  }
+
+  Future<void> _playWebViewVideoWithDelay(Duration delay) async {
+    if (!_isWebViewVideoReady) {
+      print('WebView video henüz hazır değil, oynatma ertelendi.');
+      return; // If not ready, don't try to play yet.
+    }
+    print('WebView video ${delay.inSeconds} saniye sonra oynatılıyor...');
+    await Future.delayed(delay);
+    if (mounted) {
+      await _playWebViewVideo();
+    }
+  }
+
+  Widget _buildWebViewPlayer() {
+    return Stack(
+      children: [
+        WebViewWidget(
+          controller: _webViewController!,
+        ),
+        // Sağ üst köşede kontrol butonları
+        Positioned(
+          right: 8,
+          top: 8,
+          child: Row(
+            children: [
+              // Oynat/Duraklat butonu
+              _buildMiniControlButton(
+                icon: _isWebViewVideoPlaying ? Icons.pause : Icons.play_arrow,
+                onTap: () {
+                  if (_isWebViewVideoPlaying) {
+                    _pauseWebViewVideo(); // Call actual pause for WebView
+                  } else {
+                    _playWebViewVideo(); // Call actual play for WebView
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+              // Tam ekran butonu
+              _buildMiniControlButton(
+                icon: Icons.fullscreen,
+                onTap: _navigateToFullScreenPlayer,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _loadWebView(String videoUrl) {
+    // Varsayılan HTML içeriği (genel embed)
+    String htmlContent = '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+      <style>
+        body, html { margin: 0; padding: 0; overflow: hidden; background: #000; }
+        iframe { 
+          position: absolute; 
+          top: 0; left: 0; width: 100%; height: 100%; 
+          border: none; 
+        }
+      </style>
+    </head>
+    <body>
+      <iframe 
+        id="videoPlayer" 
+        src="$videoUrl${videoUrl.contains('?') ? '&' : '?'}autoplay=1&controls=0&showinfo=0&rel=0" 
+        allow="autoplay; encrypted-media;" 
+        allowfullscreen>
+      </iframe>
+      <script>
+        var player;
+        function onYouTubeIframeAPIReady() {
+          if (typeof player !== 'undefined') return; // Zaten varsa tekrar oluşturma
+          player = new YT.Player('videoPlayer', {
+            events: {
+              'onReady': onPlayerReady,
+              'onStateChange': onPlayerStateChange
+            }
+          });
+        }
+
+        function onPlayerReady(event) {
+          // Video hazır
+        }
+
+        function onPlayerStateChange(event) {
+          // Durum değişiklikleri buraya
+        }
+
+        function playVideo() {
+          if (player && typeof player.playVideo === 'function') {
+            player.playVideo();
+          } else {
+            var video = document.querySelector('video');
+            if (video) video.play();
+          }
+        }
+
+        function pauseVideo() {
+          if (player && typeof player.pauseVideo === 'function') {
+            player.pauseVideo();
+          } else {
+            var video = document.querySelector('video');
+            if (video) video.pause();
+          }
+        }
+
+        function seekTo(seconds) {
+          if (player && typeof player.seekTo === 'function') {
+            player.seekTo(seconds, true);
+          } else {
+            var video = document.querySelector('video');
+            if (video) video.currentTime = seconds;
+          }
+        }
+      </script>
+    </body>
+    </html>
+  ''';
+
+    // YouTube özel durumu
+    if (videoUrl.contains('youtube.com') || videoUrl.contains('youtu.be')) {
+      final videoId = _extractYouTubeId(videoUrl);
+      if (videoId != null) {
+        htmlContent = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+          <style>
+            body, html { margin: 0; padding: 0; overflow: hidden; background: #000; }
+            iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+          </style>
+        </head>
+        <body>
+          <iframe 
+            id="videoPlayer" 
+            src="https://www.youtube.com/embed/$videoId?enablejsapi=1&autoplay=1&controls=0&showinfo=0&rel=0" 
+            allow="autoplay; encrypted-media;" 
+            allowfullscreen>
+          </iframe>
+          <script src="https://www.youtube.com/iframe_api"></script>
+          <script>
+            var player;
+            function onYouTubeIframeAPIReady() {
+              if (typeof player !== 'undefined') return;
+              player = new YT.Player('videoPlayer', {
+                events: {
+                  'onReady': onPlayerReady,
+                  'onStateChange': onPlayerStateChange
+                }
+              });
+            }
+
+            function onPlayerReady(event) {
+              // Video hazır
+            }
+
+            function onPlayerStateChange(event) {
+              // Durum değişiklikleri
+            }
+
+            function playVideo() {
+              if (player && typeof player.playVideo === 'function') {
+                player.playVideo();
+              }
+            }
+
+            function pauseVideo() {
+              if (player && typeof player.pauseVideo === 'function') {
+                player.pauseVideo();
+              }
+            }
+
+            function seekTo(seconds) {
+              if (player && typeof player.seekTo === 'function') {
+                player.seekTo(seconds, true);
+              }
+            }
+          </script>
+        </body>
+        </html>
+      ''';
+      }
+    }
+
+    // WebView'e yükle
+    _webViewController?.loadHtmlString(htmlContent);
+  }
+
+  String? _extractYouTubeId(String url) {
+    final regExp = RegExp(
+      r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})',
+      caseSensitive: false,
+    );
+    final match = regExp.firstMatch(url);
+    return match?.group(1);
+  }
+
   @override
   void initState() {
     super.initState();
     print('🎬 EpisodeDetailsPage başlatılıyor...');
     print('📍 EpisodeID: ${widget.episodeId}');
     print('📍 EpisodeTitle: ${widget.episodeTitle}');
-    
+
+    _webViewController = WebViewController();
+    _webViewController!.setJavaScriptMode(JavaScriptMode.unrestricted);
+    _webViewController!.addJavaScriptChannel(
+      'flutter_inappwebview',
+      onMessageReceived: (JavaScriptMessage message) {
+        if (message.message == 'videoReady') {
+          setState(() {
+            _isWebViewVideoReady = true;
+          });
+          // Now that the WebView is ready, play the video with a delay
+          if (_shouldVideoUseWebView(_currentVideoUrl)) {
+            _playWebViewVideoWithDelay(const Duration(seconds: 2));
+          }
+        }
+      },
+    );
+    _webViewController!.setNavigationDelegate(
+      NavigationDelegate(
+        onProgress: (int progress) {
+          // Update loading bar.
+        },
+        onPageStarted: (String url) {},
+        onPageFinished: (String url) {},
+        onWebResourceError: (WebResourceError error) {},
+        onNavigationRequest: (NavigationRequest request) {
+          if (request.url.startsWith('https://www.youtube.com/')) {
+            return NavigationDecision.prevent;
+          }
+          return NavigationDecision.navigate;
+        },
+      ),
+    );
+
+    _loadVideoSources(); // Video kaynaklarını yükle
     _loadInterstitialAd();
     _loadBannerAd();
     _checkIfFavorite();
@@ -109,10 +377,140 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     super.dispose();
   }
 
+  // Video kaynaklarını yükle
+  void _loadVideoSources() {
+    print('🔍 Episode data kontrolü: ${widget.episode != null}');
+    print('🔍 Episode keys: ${widget.episode?.keys.toList()}');
+    if (widget.episode != null && widget.episode!['videoSources'] != null) {
+      // Her kaynak için hem videoUrl hem url anahtarını kontrol et
+      _videoSources = (widget.episode!['videoSources'] as List).map((source) {
+        final src = Map<String, dynamic>.from(source as Map);
+        final url = src['videoUrl'] ?? src['url'] ?? '';
+        return {
+          ...src,
+          'url': url,
+        };
+      }).toList();
+      print('🎥 Video kaynakları yüklendi: ${_videoSources.length} kaynak');
+      for (int i = 0; i < _videoSources.length; i++) {
+        print(
+            '   $i: ${_videoSources[i]['name']} (${_videoSources[i]['quality']}) url: ${_videoSources[i]['url']}');
+      }
+    } else {
+      // Geriye uyumluluk - eski format
+      _videoSources = [
+        {
+          'name': 'Varsayılan',
+          'quality': 'HD',
+          'url': widget.videoUrl,
+        }
+      ];
+      print('🎥 Eski format kullanılıyor - varsayılan kaynak eklendi');
+      print('🔍 Widget.videoUrl: ${widget.videoUrl}');
+    }
+  }
+
+  // Seçili video URL'ini döndür
+  String get _currentVideoUrl {
+    if (_videoSources.isNotEmpty &&
+        _selectedSourceIndex < _videoSources.length) {
+      final url = _videoSources[_selectedSourceIndex]['url'];
+      if (url != null && url.toString().isNotEmpty) return url;
+    }
+    // Eğer videoSources yoksa, ana videoUrl'i kullan
+    return widget.episode?['videoUrl'] ?? widget.videoUrl;
+  }
+
+  // Video kaynak seçici widget'ı
+  Widget _buildVideoSourceSelector() {
+    if (_videoSources.length <= 1) return const SizedBox.shrink();
+    return ExpansionTile(
+      title: const Text('Video Kaynağı Seç'),
+      children: [
+        if (_isSwitchingSource)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8.0),
+            child: Center(
+              child:
+                  CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
+            ),
+          ),
+        ...List.generate(_videoSources.length, (i) {
+          final source = _videoSources[i];
+          final isSelected = _selectedSourceIndex == i;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            margin: const EdgeInsets.symmetric(vertical: 2),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? Colors.blue.withOpacity(0.15)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ListTile(
+              title: Text(source['name'] ?? 'Kaynak ${i + 1}',
+                  style: TextStyle(
+                    color: isSelected ? Colors.blue[700] : Colors.white,
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
+                  )),
+              subtitle: Text(source['quality'] ?? '',
+                  style: TextStyle(
+                    color: isSelected ? Colors.blue[300] : Colors.grey[400],
+                  )),
+              trailing: isSelected
+                  ? const Icon(Icons.check_circle, color: Colors.blue)
+                  : null,
+              onTap: () async {
+                if (_selectedSourceIndex == i || _isSwitchingSource) return;
+                setState(() {
+                  _isSwitchingSource = true;
+                  _selectedSourceIndex = i;
+                });
+                // SnackBar ile bilgilendirme
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Kaynak değiştiriliyor...'),
+                    duration: Duration(milliseconds: 700),
+                    backgroundColor: Colors.blue,
+                  ),
+                );
+                await _reinitializeVideoWithNewSource();
+                if (mounted) {
+                  setState(() {
+                    _isSwitchingSource = false;
+                  });
+                }
+              },
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  // Yeni kaynak seçildiğinde video player'ı yeniden başlat
+  Future<void> _reinitializeVideoWithNewSource() async {
+    // Mevcut video controller'ı dispose et
+    await _videoPlayerController?.dispose();
+    _videoPlayerController = null;
+
+    setState(() {
+      _isVideoInitialized = false;
+    });
+
+    // Video timer'ı iptal et
+    _hideVideoControlsTimer?.cancel();
+
+    // Yeni kaynakla video'yu yeniden başlat
+    await _initializeVideo();
+  }
+
   // Yorumları yükle
   Future<void> _loadComments() async {
     print('_loadComments çağrıldı. episodeId: ${widget.episodeId}');
-    
+
     if (widget.episodeId == null || widget.episodeId!.isEmpty) {
       print('episodeId null veya boş, yorumlar yüklenmiyor');
       setState(() {
@@ -120,18 +518,21 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
       });
       return;
     }
-    
+
     setState(() {
       _isLoadingComments = true;
     });
 
     try {
-      print('Firestore\'dan yorumlar çekiliyor. episodeId: ${widget.episodeId}');
-      
+      print(
+          'Firestore\'dan yorumlar çekiliyor. episodeId: ${widget.episodeId}');
+
       // Önce sadece collection'a erişim test edelim
-      final testSnapshot = await _firestore.collection('comments').limit(1).get();
-      print('Comments koleksiyonuna erişim testi: ${testSnapshot.docs.length} döküman bulundu');
-      
+      final testSnapshot =
+          await _firestore.collection('comments').limit(1).get();
+      print(
+          'Comments koleksiyonuna erişim testi: ${testSnapshot.docs.length} döküman bulundu');
+
       final snapshot = await _firestore
           .collection('comments')
           .where('episodeId', isEqualTo: widget.episodeId)
@@ -161,7 +562,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         _comments = comments;
         _isLoadingComments = false;
       });
-      
+
       print('✅ Yorumlar state\'e yüklendi. Toplam: ${_comments.length}');
       if (_comments.isNotEmpty) {
         print('İlk yorum: ${_comments.first['comment']}');
@@ -180,8 +581,9 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // Yorum ekle
   Future<void> _addComment() async {
     final user = _auth.currentUser;
-    print('_addComment çağrıldı. user: ${user?.email}, episodeId: ${widget.episodeId}');
-    
+    print(
+        '_addComment çağrıldı. user: ${user?.email}, episodeId: ${widget.episodeId}');
+
     if (user == null) {
       print('Kullanıcı giriş yapmamış');
       Navigator.push(
@@ -219,25 +621,34 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
     try {
       print('Firestore\'a yorum ekleniyor: ${_commentController.text.trim()}');
-      
+
       // Kullanıcı adını Firestore'dan al
       String userName = 'Bilinmeyen Kullanıcı';
       try {
-        final userDoc = await _firestore.collection('users').doc(user.uid).get();
+        final userDoc =
+            await _firestore.collection('users').doc(user.uid).get();
         if (userDoc.exists) {
           final userData = userDoc.data() as Map<String, dynamic>;
-          userName = userData['username'] ?? userData['displayName'] ?? user.displayName ?? user.email?.split('@')[0] ?? 'Bilinmeyen Kullanıcı';
+          userName = userData['username'] ??
+              userData['displayName'] ??
+              user.displayName ??
+              user.email?.split('@')[0] ??
+              'Bilinmeyen Kullanıcı';
         } else {
           // Firestore'da kullanıcı yoksa, mevcut bilgilerden al
-          userName = user.displayName ?? user.email?.split('@')[0] ?? 'Bilinmeyen Kullanıcı';
+          userName = user.displayName ??
+              user.email?.split('@')[0] ??
+              'Bilinmeyen Kullanıcı';
         }
       } catch (e) {
         print('Kullanıcı adı alınırken hata: $e');
-        userName = user.displayName ?? user.email?.split('@')[0] ?? 'Bilinmeyen Kullanıcı';
+        userName = user.displayName ??
+            user.email?.split('@')[0] ??
+            'Bilinmeyen Kullanıcı';
       }
-      
+
       print('Kullanıcı adı belirlendi: $userName');
-      
+
       await _firestore.collection('comments').add({
         'episodeId': widget.episodeId,
         'userId': user.uid,
@@ -328,7 +739,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // Yorum seçenekleri menüsü
   void _showCommentOptions(Map<String, dynamic> comment) {
     final isOwnComment = _auth.currentUser?.uid == comment['userId'];
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.grey[900],
@@ -340,13 +751,14 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
             // Kopyala
             ListTile(
               leading: const Icon(Icons.copy, color: Colors.blue),
-              title: const Text('Kopyala', style: TextStyle(color: Colors.white)),
+              title:
+                  const Text('Kopyala', style: TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(context);
                 _copyComment(comment['comment']?.toString() ?? '');
               },
             ),
-            
+
             // Sadece kendi yorumları için silme
             if (isOwnComment)
               ListTile(
@@ -357,12 +769,13 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                   _deleteComment(comment['id'], comment['userId']);
                 },
               ),
-            
+
             // Rapor et (başkasının yorumu için)
             if (!isOwnComment)
               ListTile(
                 leading: const Icon(Icons.report, color: Colors.red),
-                title: const Text('Rapor Et', style: TextStyle(color: Colors.white)),
+                title: const Text('Rapor Et',
+                    style: TextStyle(color: Colors.white)),
                 onTap: () {
                   Navigator.pop(context);
                   // Rapor etme işlemi
@@ -404,15 +817,15 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
     try {
       print("GitHub'dan seri bilgileri yükleniyor...");
-      
+
       // Tüm serileri GitHub'dan çek
       final allSeries = await _githubService.fetchSeries();
-      
+
       String? foundSeriesTitle;
-      
+
       // Bölüm başlığından seri ismini çıkarma
       String episodeTitle = widget.episodeTitle;
-      
+
       // Her seriyi kontrol et ve bu bölümün hangi seriye ait olduğunu bul
       for (var series in allSeries) {
         // Seri ismiyle eşleşme kontrolü
@@ -421,7 +834,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           print("Seri bulundu: ${series.title}");
           break;
         }
-        
+
         // Ayrıca seasonara bakarak da kontrol edebiliriz
         for (var season in series.seasons) {
           for (var episode in season.episodes) {
@@ -436,13 +849,13 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         }
         if (foundSeriesTitle != null) break;
       }
-      
+
       if (mounted) {
         setState(() {
           _seriesTitle = foundSeriesTitle;
           _isLoadingSeriesTitle = false;
         });
-        
+
         if (foundSeriesTitle != null) {
           print("GitHub'dan seri ismi yüklendi: $foundSeriesTitle");
         } else {
@@ -462,34 +875,61 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // Video başlatma
   Future<void> _initializeVideo() async {
     try {
-      print("Video başlatılıyor: ${widget.videoUrl}");
-      
-      // WebView gerekip gerekmediğini kontrol et
-      if (_shouldVideoUseWebView(widget.videoUrl)) {
-        // WebView kullanılacaksa sadece thumbnail göster, native video player kullanma
+      String videoUrl = _currentVideoUrl;
+      if (videoUrl.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Videoya ait link bulunamadı'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
         setState(() {
-          _isVideoInitialized = false; // WebView için native player kullanmıyoruz
+          _isVideoInitialized = false;
         });
-        print("Video WebView ile oynatılacak");
         return;
       }
-      
-      _videoPlayerController = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
-      await _videoPlayerController!.initialize();
-      
-      // Kaydedilen pozisyonu yükle
-      final prefs = await SharedPreferences.getInstance();
-      final savedPosition = prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
-      
-      if (savedPosition > 0) {
-        await _videoPlayerController!.seekTo(Duration(milliseconds: savedPosition));
+
+      if (_shouldVideoUseWebView(videoUrl)) {
+        // WebView kısmı dokunulmaz
+        _webViewController = WebViewController()
+          ..setJavaScriptMode(JavaScriptMode.unrestricted)
+          ..setBackgroundColor(Colors.black)
+          ..setNavigationDelegate(
+            NavigationDelegate(
+              onPageFinished: (String url) {
+                print('✅ WebView sayfası yüklendi: $url');
+              },
+            ),
+          );
+        setState(() {
+          _isVideoInitialized = true;
+          _isWebViewVideoPlaying = false;
+        });
+        _loadWebView(videoUrl);
+        return;
       }
-      
+
+      // Native video: SharedPreferences'ten **en güncel** pozisyonu al
+      final prefs = await SharedPreferences.getInstance();
+      final savedPosition =
+          prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
+
+      _videoPlayerController =
+          VideoPlayerController.networkUrl(Uri.parse(videoUrl));
+      await _videoPlayerController!.initialize();
+
+      // En güncel pozisyona git
+      if (savedPosition > 0) {
+        await _videoPlayerController!
+            .seekTo(Duration(milliseconds: savedPosition));
+      }
+
       setState(() {
         _isVideoInitialized = true;
       });
-      
-      // Kontrolleri başlangıçta göster ve 3 saniye sonra gizle
+
       _showVideoControls = true;
       _hideVideoControlsTimer = Timer(const Duration(seconds: 3), () {
         if (mounted) {
@@ -498,26 +938,33 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           });
         }
       });
-      
-      // Video durumu değişikliklerini dinle
+
+      // ✅ DÜZELTİLDİ: _videoController değil, _videoPlayerController
       _videoPlayerController!.addListener(() {
         if (mounted) {
-          setState(() {
-            // UI güncellemesi için setState çağır
-          });
-          _saveVideoPosition();
+          setState(() {});
+          _saveVideoPosition(); // Mini oynatıcıdaki pozisyonu kaydet
         }
       });
-      
-      print("Video başlatıldı");
+
+      print("✅ Video başarıyla başlatıldı");
     } catch (e) {
-      print("Video başlatma hatası: $e");
+      print("❌ Video başlatma hatası: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Video başlatma hatası: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   // Video pozisyonunu kaydet
   Future<void> _saveVideoPosition() async {
-    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
+    if (_videoPlayerController != null &&
+        _videoPlayerController!.value.isInitialized) {
       final position = _videoPlayerController!.value.position.inMilliseconds;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('video_position_${widget.episodeTitle}', position);
@@ -526,18 +973,17 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
   // Kaydedilen video pozisyonunu yükle
   Future<void> _loadSavedVideoPosition() async {
-    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final savedPosition = prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
-        
-        if (savedPosition > 0) {
-          final duration = Duration(milliseconds: savedPosition);
-          await _videoPlayerController!.seekTo(duration);
-        }
-      } catch (e) {
-        print('Video pozisyon yükleme hatası: $e');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedPosition =
+          prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
+      if (_videoPlayerController != null &&
+          _videoPlayerController!.value.isInitialized) {
+        await _videoPlayerController!
+            .seekTo(Duration(milliseconds: savedPosition));
       }
+    } catch (e) {
+      print('Pozisyon yükleme hatası: $e');
     }
   }
 
@@ -546,7 +992,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     setState(() {
       _showVideoControls = !_showVideoControls;
     });
-    
+
     if (_showVideoControls) {
       _hideVideoControlsTimer?.cancel();
       _hideVideoControlsTimer = Timer(const Duration(seconds: 3), () {
@@ -559,38 +1005,51 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     }
   }
 
-  // Geri sarma
-  void _seekBackward() {
-    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
-      final currentPosition = _videoPlayerController!.value.position;
-      final newPosition = currentPosition - const Duration(seconds: 10);
-      _videoPlayerController!.seekTo(newPosition > Duration.zero ? newPosition : Duration.zero);
-    }
-  }
-
-  // İleri sarma
-  void _seekForward() {
-    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
-      final currentPosition = _videoPlayerController!.value.position;
-      final duration = _videoPlayerController!.value.duration;
-      final newPosition = currentPosition + const Duration(seconds: 10);
-      _videoPlayerController!.seekTo(newPosition < duration ? newPosition : duration);
-    }
-  }
-
   // Oynat/Duraklat
   void _togglePlayPause() {
-    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
+    if (_videoPlayerController != null &&
+        _videoPlayerController!.value.isInitialized) {
       if (_videoPlayerController!.value.isPlaying) {
         _videoPlayerController!.pause();
       } else {
         _videoPlayerController!.play();
       }
+      setState(() {});
     }
   }
 
   // Tam ekran oynatıcıya git
-  void _navigateToFullScreenPlayer() {
+  void _navigateToFullScreenPlayer() async {
+    // Eğer WebView kullanılıyorsa, sesi kes
+    if (_shouldVideoUseWebView(_currentVideoUrl) &&
+        _webViewController != null) {
+      try {
+        // JavaScript ile duraklatmayı dene
+        await _webViewController!.runJavaScript('''
+        (function() {
+          if (typeof player !== 'undefined' && player && typeof player.pauseVideo === 'function') {
+            player.pauseVideo();
+          }
+          var video = document.querySelector('video');
+          if (video) video.pause();
+          var iframe = document.querySelector('iframe');
+          if (iframe) iframe.src = iframe.src;
+        })();
+      ''');
+      } catch (e) {
+        print('JS duraklatma hatası: $e');
+      }
+
+      // EN GÜVENLİ YÖNTEM: WebView içeriğini temizle
+      await _webViewController?.loadHtmlString('''
+      <!DOCTYPE html>
+      <html>
+      <body style="margin:0; padding:0; background:#000;"></body>
+      </html>
+    ''');
+    }
+
+    // Reklam veya doğrudan git
     _showAdOrNavigate();
   }
 
@@ -598,7 +1057,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   Future<void> _loadInterstitialAd() async {
     _interstitialAd?.dispose();
     _isAdLoaded = false;
-    
+
     await InterstitialAd.load(
       adUnitId: 'ca-app-pub-7690250755006392/8813706277',
       request: const AdRequest(),
@@ -606,7 +1065,8 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         onAdLoaded: (InterstitialAd ad) {
           _interstitialAd = ad;
           _isAdLoaded = true;
-          _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
+          _interstitialAd!.fullScreenContentCallback =
+              FullScreenContentCallback(
             onAdDismissedFullScreenContent: (ad) {
               ad.dispose();
               _navigateToVideoPlayer();
@@ -733,7 +1193,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         'episodeIndex': widget.episodeIndex,
         'addedAt': FieldValue.serverTimestamp(),
       });
-      
+
       print("Favoriye eklendi: ${widget.episodeTitle}");
     } catch (e) {
       print("Favoriye ekleme hatası: $e");
@@ -762,7 +1222,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         'lastWatched': FieldValue.serverTimestamp(), // Bu alan önemli
         'watchedAt': FieldValue.serverTimestamp(),
       });
-      
+
       print("İzleme geçmişine eklendi: ${widget.episodeTitle}");
     } catch (e) {
       print("İzleme geçmişi kaydetme hatası: $e");
@@ -785,31 +1245,34 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   Future<void> _incrementViewCount() async {
     try {
       final docRef = _firestore.collection('videos').doc(widget.episodeTitle);
-      
+
       // Tekli artış (1)
       const int increment = 1;
-      
+
       // Local state'i artırmıyoruz, sadece Firestore'u güncelliyoruz
       // Kullanıcı ekrandan çıkıp tekrar girdiğinde artışı görebilecek
-      
+
       // Firestore'u arka planda güncelle
       await _firestore.runTransaction((transaction) async {
         final doc = await transaction.get(docRef);
-        
+
         int currentViews = 0;
         if (doc.exists) {
           currentViews = doc.data()?['views'] ?? 0;
         }
-        
-        transaction.set(docRef, {
-          'title': widget.episodeTitle,
-          'views': currentViews + increment,
-          'lastUpdated': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-        
-        print("📊 İzlenme sayısı 1 kadar artırıldı. Yeni toplam: ${currentViews + increment}");
+
+        transaction.set(
+            docRef,
+            {
+              'title': widget.episodeTitle,
+              'views': currentViews + increment,
+              'lastUpdated': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true));
+
+        print(
+            "📊 İzlenme sayısı 1 kadar artırıldı. Yeni toplam: ${currentViews + increment}");
       });
-      
     } catch (e) {
       print("Görüntülenme sayısı güncellenirken hata: $e");
     }
@@ -818,12 +1281,13 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // İzlenme sayısını hızlıca yükle
   Future<void> _loadViewCount() async {
     try {
-      final doc = await _firestore.collection('videos').doc(widget.episodeTitle).get();
-      
+      final doc =
+          await _firestore.collection('videos').doc(widget.episodeTitle).get();
+
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
         final viewCount = (data['views'] as num?)?.toInt() ?? 0;
-        
+
         if (mounted) {
           setState(() {
             _localViewCount = viewCount;
@@ -856,60 +1320,118 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   }
 
   void _navigateToVideoPlayer() async {
-    // Mevcut video pozisyonunu kaydet
-    if (_videoPlayerController != null && _videoPlayerController!.value.isInitialized) {
-      await _saveVideoPosition();
-      // Mini oynatıcıyı duraklat
-      _videoPlayerController!.pause();
+    // 1. Eğer WebView kullanılıyorsa, sesi kes
+    if (_shouldVideoUseWebView(_currentVideoUrl) &&
+        _webViewController != null) {
+      try {
+        await _webViewController!.runJavaScript('''
+        (function() {
+          if (typeof player !== 'undefined' && player && typeof player.pauseVideo === 'function') {
+            player.pauseVideo();
+          }
+          var video = document.querySelector('video');
+          if (video) video.pause();
+          var iframe = document.querySelector('iframe');
+          if (iframe) iframe.src = iframe.src;
+        })();
+      ''');
+      } catch (e) {
+        print('JS duraklatma hatası: $e');
+      }
+
+      await _webViewController?.loadHtmlString('''
+      <!DOCTYPE html>
+      <html>
+      <body style="margin:0; padding:0; background:#000;"></body>
+      </html>
+    ''');
     }
-    
-    // WebView kullanılıp kullanılmayacağını belirle
-    bool shouldUseWebView = _shouldVideoUseWebView(widget.videoUrl);
-    
+
+    // 2. Native video ise pozisyonu kaydet ve durdur
+    if (!_shouldVideoUseWebView(_currentVideoUrl)) {
+      if (_videoPlayerController != null &&
+          _videoPlayerController!.value.isInitialized) {
+        await _saveVideoPosition();
+        _videoPlayerController!.pause();
+      }
+    }
+
+    // 3. Tam ekran oynatıcıya git
+    final videoUrl = _currentVideoUrl;
+    final shouldUseWebView = _shouldVideoUseWebView(videoUrl);
+    final savedPosition = (await SharedPreferences.getInstance())
+            .getInt('video_position_${widget.episodeTitle}') ??
+        0;
+
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => VideoPlayerPage(
-          videoUrl: widget.videoUrl,
+          videoUrl: videoUrl,
           videoTitle: widget.episodeTitle,
           useWebView: shouldUseWebView,
+          initialPosition: Duration(milliseconds: savedPosition),
         ),
       ),
     );
-    
-    // Tam ekran oynatıcıdan döndükten sonra pozisyonu yükle ve mini oynatıcıyı güncelle
-    await _loadSavedVideoPosition();
+
+    // 4. <<<<< GELDİK BURAYA: GERİ DÖNDÜK >>>>>
+
+    // WebView ise: yeniden yükle
+    if (mounted && _shouldVideoUseWebView(_currentVideoUrl)) {
+      _loadWebView(_currentVideoUrl);
+    }
+
+    // Native ise: pozisyonu yükle (oynatma otomatik değil)
+    if (!_shouldVideoUseWebView(_currentVideoUrl)) {
+      await _loadSavedVideoPosition();
+    }
   }
 
   // WebView kullanılması gerekip gerekmediğini belirle
   bool _shouldVideoUseWebView(String videoUrl) {
     final url = videoUrl.toLowerCase();
-    
+
     // .mp4 dosyaları native player ile oynatılır
     if (url.endsWith('.mp4')) return false;
-    
-    // YouTube, Vimeo, Dailymotion vs. gibi platformlar WebView ile oynatılır
-    if (url.contains('youtube.com') || 
-        url.contains('youtu.be') ||
-        url.contains('vimeo.com') ||
-        url.contains('dailymotion.com') ||
-        url.contains('facebook.com') ||
-        url.contains('instagram.com') ||
-        url.contains('tiktok.com') ||
-        url.contains('twitch.tv') ||
-        url.contains('embed') ||
-        url.contains('iframe')) {
+
+    // Diğer desteklenen video formatları
+    if (url.endsWith('.avi') ||
+        url.endsWith('.mkv') ||
+        url.endsWith('.mov') ||
+        url.endsWith('.wmv') ||
+        url.endsWith('.flv') ||
+        url.endsWith('.webm') ||
+        url.endsWith('.m3u8')) {
+      return false;
+    }
+
+    // Online video platformları WebView ile oynatılır
+    if (url.contains('sibnet.ru') ||
+        url.contains('ok.ru') ||
+        url.contains('vk.com') ||
+        url.contains('rumble')) {
       return true;
     }
-    
-    return false;
+
+    // Bilinmeyen formatlar için WebView kullan (güvenli seçenek)
+    return true;
   }
 
   // Paylaş
   void _shareVideo() async {
+    final String playStoreLink =
+        'https://play.google.com/store/apps/details?id=com.bintech.videoapp';
+    final String shareText = '''
+Beraber izleyelim mi kanka: ${widget.episodeTitle}
+
+Bu videoyu izlemek için uygulamayı indir:
+$playStoreLink
+  ''';
+
     try {
       await Share.share(
-        'Bu harika videoyu izle: ${widget.episodeTitle}\n${widget.videoUrl}',
+        shareText.trim(),
         subject: widget.episodeTitle,
       );
     } catch (e) {
@@ -937,7 +1459,8 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
             ),
             ListTile(
               leading: const Icon(Icons.report, color: Colors.red),
-              title: const Text('Rapor Et', style: TextStyle(color: Colors.white)),
+              title:
+                  const Text('Rapor Et', style: TextStyle(color: Colors.white)),
               onTap: () {
                 Navigator.pop(context);
                 // Rapor et
@@ -952,18 +1475,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   }
 
   // Firestore test fonksiyonu (debug amaçlı)
-  // Zaman formatı
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
-    if (duration.inHours > 0) {
-      return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
-    } else {
-      return "$twoDigitMinutes:$twoDigitSeconds";
-    }
-  }
-
   // Görüntülenme sayısını formatla
   String _formatViewCount(int viewCount) {
     if (viewCount >= 1000000) {
@@ -1019,7 +1530,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     if (widget.currentIndex! <= 0) return;
 
     final previousEpisode = widget.episodeList![widget.currentIndex! - 1];
-    
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -1044,7 +1555,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     if (widget.currentIndex! >= widget.episodeList!.length - 1) return;
 
     final nextEpisode = widget.episodeList![widget.currentIndex! + 1];
-    
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -1063,6 +1574,22 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     );
   }
 
+  // Mini kontrol butonu helper
+  Widget _buildMiniControlButton(
+      {required IconData icon, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.6),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Colors.white, size: 22),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1072,11 +1599,11 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         elevation: 0,
         centerTitle: false,
         title: Text(
-          _isLoadingSeriesTitle 
+          _isLoadingSeriesTitle
               ? 'Yükleniyor...'
-              : _seriesTitle?.isNotEmpty == true 
+              : _seriesTitle?.isNotEmpty == true
                   ? _seriesTitle!
-                  : _episodeDetails?['api_title']?.isNotEmpty == true 
+                  : _episodeDetails?['api_title']?.isNotEmpty == true
                       ? _episodeDetails!['api_title']
                       : _episodeDetails?['seriesTitle']?.isNotEmpty == true
                           ? _episodeDetails!['seriesTitle']
@@ -1089,8 +1616,10 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
+        actions: const [
+          // Actions can be added here if needed
+        ],
       ),
-      
       body: SafeArea(
         child: Column(
           children: [
@@ -1114,185 +1643,89 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                               end: Alignment.bottomCenter,
                             ),
                           ),
-                          child: _videoPlayerController != null && _isVideoInitialized
-                              ? AspectRatio(
-                                  aspectRatio: _videoPlayerController!.value.aspectRatio,
-                                  child: VideoPlayer(_videoPlayerController!),
-                                )
-                              : widget.thumbnailUrl != null
-                                  ? Image.network(
-                                      widget.thumbnailUrl!,
-                                      fit: BoxFit.cover,
-                                      width: double.infinity,
-                                      height: double.infinity,
-                                    )
-                                  : const Center(
-                                      child: Icon(
-                                        Icons.video_library,
-                                        color: Colors.white54,
-                                        size: 64,
-                                      ),
-                                    ),
                         ),
-                        
-                        // Video Controls Overlay
-                        if (_videoPlayerController != null && _isVideoInitialized)
-                          Positioned.fill(
-                            child: GestureDetector(
-                              onTap: _toggleVideoControls,
-                              child: AnimatedOpacity(
-                                opacity: _showVideoControls ? 1.0 : 0.0,
-                                duration: const Duration(milliseconds: 300),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Colors.black.withOpacity(0.3),
-                                        Colors.transparent,
-                                        Colors.black.withOpacity(0.3),
-                                      ],
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                    ),
-                                  ),
-                                  child: Stack(
-                                    children: [
-                                      // Merkezi kontrol alanı
-                                      Center(
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.center,
+                        // Video içeriği
+                        Positioned.fill(
+                          child: _shouldVideoUseWebView(_currentVideoUrl)
+                              ? _buildWebViewPlayer() // Yeni: WebView ile oynat
+                              : _videoPlayerController != null &&
+                                      _isVideoInitialized
+                                  ? GestureDetector(
+                                      onTap: _toggleVideoControls,
+                                      child: AspectRatio(
+                                        aspectRatio: _videoPlayerController!
+                                            .value.aspectRatio,
+                                        child: Stack(
                                           children: [
-                                            // 10 saniye geri butonu
-                                            GestureDetector(
-                                              onTap: _seekBackward,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(8),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.black.withOpacity(0.6),
-                                                  borderRadius: BorderRadius.circular(25),
-                                                ),
-                                                child: const Icon(
-                                                  Icons.replay_10,
-                                                  color: Colors.white,
-                                                  size: 28,
-                                                ),
-                                              ),
-                                            ),
-                                            
-                                            const SizedBox(width: 20),
-                                            
-                                            // Oynat/Duraklat butonu
-                                            GestureDetector(
-                                              onTap: _togglePlayPause,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(12),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.black.withOpacity(0.6),
-                                                  borderRadius: BorderRadius.circular(30),
-                                                ),
-                                                child: Icon(
-                                                  _videoPlayerController!.value.isPlaying
-                                                      ? Icons.pause
-                                                      : Icons.play_arrow,
-                                                  color: Colors.white,
-                                                  size: 32,
+                                            VideoPlayer(
+                                                _videoPlayerController!),
+                                            if (_showVideoControls)
+                                              Positioned(
+                                                right: 8,
+                                                top: 8,
+                                                child: Row(
+                                                  children: [
+                                                    _buildMiniControlButton(
+                                                      icon:
+                                                          _videoPlayerController!
+                                                                  .value
+                                                                  .isPlaying
+                                                              ? Icons.pause
+                                                              : Icons
+                                                                  .play_arrow,
+                                                      onTap: _togglePlayPause,
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    _buildMiniControlButton(
+                                                      icon: Icons.fullscreen,
+                                                      onTap:
+                                                          _navigateToFullScreenPlayer,
+                                                    ),
+                                                  ],
                                                 ),
                                               ),
-                                            ),
-                                            
-                                            const SizedBox(width: 20),
-                                            
-                                            // 10 saniye ileri butonu
-                                            GestureDetector(
-                                              onTap: _seekForward,
-                                              child: Container(
-                                                padding: const EdgeInsets.all(8),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.black.withOpacity(0.6),
-                                                  borderRadius: BorderRadius.circular(25),
-                                                ),
-                                                child: const Icon(
-                                                  Icons.forward_10,
-                                                  color: Colors.white,
-                                                  size: 28,
-                                                ),
-                                              ),
-                                            ),
                                           ],
                                         ),
                                       ),
-                                      
-                                      // Tam ekran butonu (sağ üst)
-                                      Positioned(
-                                        top: 16,
-                                        right: 16,
-                                        child: GestureDetector(
-                                          onTap: _navigateToFullScreenPlayer,
-                                          child: Container(
-                                            padding: const EdgeInsets.all(8),
-                                            decoration: BoxDecoration(
-                                              color: Colors.black.withOpacity(0.6),
-                                              borderRadius: BorderRadius.circular(20),
-                                            ),
-                                            child: const Icon(
-                                              Icons.fullscreen,
-                                              color: Colors.white,
-                                              size: 20,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      
-                                      // Progress bar (alt)
-                                      Positioned(
-                                        bottom: 16,
-                                        left: 16,
-                                        right: 16,
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            // Zaman göstergesi
-                                            Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    )
+                                  : GestureDetector(
+                                      onTap: _navigateToFullScreenPlayer,
+                                      child: widget.thumbnailUrl != null
+                                          ? Stack(
                                               children: [
-                                                Text(
-                                                  _formatDuration(_videoPlayerController!.value.position),
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
+                                                Image.network(
+                                                  widget.thumbnailUrl!,
+                                                  fit: BoxFit.cover,
+                                                  width: double.infinity,
+                                                  height: double.infinity,
                                                 ),
-                                                Text(
-                                                  _formatDuration(_videoPlayerController!.value.duration),
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w500,
+                                                Center(
+                                                  child: Container(
+                                                    padding:
+                                                        const EdgeInsets.all(
+                                                            16),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.black
+                                                          .withOpacity(0.7),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              50),
+                                                    ),
+                                                    child: const Icon(
+                                                      Icons.play_arrow,
+                                                      color: Colors.white,
+                                                      size: 48,
+                                                    ),
                                                   ),
                                                 ),
                                               ],
+                                            )
+                                          : const Center(
+                                              child: CircularProgressIndicator(
+                                                  color: Colors.red),
                                             ),
-                                            const SizedBox(height: 4),
-                                            // Progress indicator
-                                            LinearProgressIndicator(
-                                              value: _videoPlayerController!.value.duration.inMilliseconds > 0
-                                                  ? _videoPlayerController!.value.position.inMilliseconds /
-                                                    _videoPlayerController!.value.duration.inMilliseconds
-                                                  : 0.0,
-                                              backgroundColor: Colors.white.withOpacity(0.3),
-                                              valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
-                                              minHeight: 3,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                                    ),
+                        ),
                       ],
                     ),
 
@@ -1316,11 +1749,13 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                           // İzlenme sayısı göstergesi - Local state ile hızlı gösterim
                           Row(
                             children: [
-                              const Icon(Icons.visibility, size: 16, color: Colors.blue),
+                              const Icon(Icons.visibility,
+                                  size: 16, color: Colors.blue),
                               const SizedBox(width: 4),
                               Text(
                                 "${_formatViewCount(_localViewCount)} görüntüleme",
-                                style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                                style: TextStyle(
+                                    color: Colors.grey[400], fontSize: 14),
                               ),
                             ],
                           ),
@@ -1328,10 +1763,12 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                       ),
                     ),
 
-                    const Divider(color: Colors.grey, thickness: 0.5, height: 15),
+                    const Divider(
+                        color: Colors.grey, thickness: 0.5, height: 15),
 
                     // Önceki/Sonraki Bölüm Navigasyonu
-                    if (widget.episodeList != null && widget.currentIndex != null)
+                    if (widget.episodeList != null &&
+                        widget.currentIndex != null)
                       Container(
                         margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                         child: Row(
@@ -1339,17 +1776,23 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                             // Önceki Bölüm
                             Expanded(
                               child: ElevatedButton.icon(
-                                onPressed: (widget.currentIndex! > 0) ? _navigateToPreviousEpisode : null,
-                                icon: const Icon(Icons.skip_previous, color: Colors.white),
+                                onPressed: (widget.currentIndex! > 0)
+                                    ? _navigateToPreviousEpisode
+                                    : null,
+                                icon: const Icon(Icons.skip_previous,
+                                    color: Colors.white),
                                 label: const Text(
                                   'Önceki Bölüm',
-                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500),
                                 ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: (widget.currentIndex! > 0) 
-                                      ? Colors.blue.withOpacity(0.8) 
+                                  backgroundColor: (widget.currentIndex! > 0)
+                                      ? Colors.blue.withOpacity(0.8)
                                       : Colors.grey.withOpacity(0.3),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
@@ -1360,19 +1803,25 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                             // Sonraki Bölüm
                             Expanded(
                               child: ElevatedButton.icon(
-                                onPressed: (widget.currentIndex! < widget.episodeList!.length - 1) 
-                                    ? _navigateToNextEpisode 
+                                onPressed: (widget.currentIndex! <
+                                        widget.episodeList!.length - 1)
+                                    ? _navigateToNextEpisode
                                     : null,
-                                icon: const Icon(Icons.skip_next, color: Colors.white),
+                                icon: const Icon(Icons.skip_next,
+                                    color: Colors.white),
                                 label: const Text(
                                   'Sonraki Bölüm',
-                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500),
                                 ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: (widget.currentIndex! < widget.episodeList!.length - 1) 
-                                      ? Colors.blue.withOpacity(0.8) 
+                                  backgroundColor: (widget.currentIndex! <
+                                          widget.episodeList!.length - 1)
+                                      ? Colors.blue.withOpacity(0.8)
                                       : Colors.grey.withOpacity(0.3),
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(8),
                                   ),
@@ -1382,7 +1831,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                           ],
                         ),
                       ),
-                    
+
                     // Aksiyon Butonları
                     Container(
                       decoration: BoxDecoration(
@@ -1407,21 +1856,27 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                               color: Colors.blue,
                             ),
                           ),
-                          Container(width: 1, height: 40, color: Colors.grey[800]),
+                          Container(
+                              width: 1, height: 40, color: Colors.grey[800]),
                           Expanded(
                             child: _buildActionButtonNew(
-                              icon: _isProcessing 
-                                ? null
-                                : (_isFavorite ? Icons.favorite : Icons.favorite_border),
-                              label: _isProcessing 
-                                ? 'İşleniyor...' 
-                                : (_isFavorite ? 'Favorilerde' : 'Favorile'),
-                              onTap: (_isCheckingFavorite || _isProcessing) ? null : _toggleFavorite,
+                              icon: _isProcessing
+                                  ? null
+                                  : (_isFavorite
+                                      ? Icons.favorite
+                                      : Icons.favorite_border),
+                              label: _isProcessing
+                                  ? 'İşleniyor...'
+                                  : (_isFavorite ? 'Favorilerde' : 'Favorile'),
+                              onTap: (_isCheckingFavorite || _isProcessing)
+                                  ? null
+                                  : _toggleFavorite,
                               color: _isFavorite ? Colors.red : Colors.pink,
                               isLoading: _isProcessing,
                             ),
                           ),
-                          Container(width: 1, height: 40, color: Colors.grey[800]),
+                          Container(
+                              width: 1, height: 40, color: Colors.grey[800]),
                           Expanded(
                             child: _buildActionButtonNew(
                               icon: Icons.more_horiz,
@@ -1433,14 +1888,18 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                         ],
                       ),
                     ),
-                    
+
+                    // Video Kaynak Seçici
+                    _buildVideoSourceSelector(),
+
                     // Yorumlar bölümü
                     const SizedBox(height: 24),
                     Container(
                       decoration: BoxDecoration(
                         color: const Color(0xFF1A1A1A),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white.withOpacity(0.1)),
+                        border:
+                            Border.all(color: Colors.white.withOpacity(0.1)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1467,7 +1926,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                               ],
                             ),
                           ),
-                          
+
                           // Yorum ekleme bölümü
                           if (_auth.currentUser != null)
                             Container(
@@ -1486,7 +1945,8 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                     maxLines: 3,
                                     decoration: const InputDecoration(
                                       hintText: 'Yorumunuzu yazın...',
-                                      hintStyle: TextStyle(color: Colors.white54),
+                                      hintStyle:
+                                          TextStyle(color: Colors.white54),
                                       border: InputBorder.none,
                                     ),
                                   ),
@@ -1500,7 +1960,9 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                           height: 20,
                                           child: CircularProgressIndicator(
                                             strokeWidth: 2,
-                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                                    Colors.red),
                                           ),
                                         )
                                       else
@@ -1509,13 +1971,14 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                           style: ElevatedButton.styleFrom(
                                             backgroundColor: Colors.red,
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 16, 
+                                              horizontal: 16,
                                               vertical: 8,
                                             ),
                                           ),
                                           child: const Text(
                                             'Yorum Yap',
-                                            style: TextStyle(color: Colors.white),
+                                            style:
+                                                TextStyle(color: Colors.white),
                                           ),
                                         ),
                                     ],
@@ -1549,7 +2012,8 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                     onPressed: () => Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => const SignInPage(),
+                                        builder: (context) =>
+                                            const SignInPage(),
                                       ),
                                     ),
                                     child: const Text(
@@ -1560,14 +2024,15 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                 ],
                               ),
                             ),
-                          
+
                           // Yorumlar listesi
                           if (_isLoadingComments)
                             const Padding(
                               padding: EdgeInsets.all(16),
                               child: Center(
                                 child: CircularProgressIndicator(
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                                  valueColor:
+                                      AlwaysStoppedAnimation<Color>(Colors.red),
                                 ),
                               ),
                             )
@@ -1593,7 +2058,8 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                               itemCount: _comments.length,
                               separatorBuilder: (context, index) {
                                 // Güvenli separator
-                                if (index < 0 || index >= _comments.length - 1) {
+                                if (index < 0 ||
+                                    index >= _comments.length - 1) {
                                   return const SizedBox.shrink();
                                 }
                                 return Divider(
@@ -1606,18 +2072,28 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                 if (index < 0 || index >= _comments.length) {
                                   return const SizedBox.shrink();
                                 }
-                                
+
                                 final comment = _comments[index];
-                                final createdAt = comment['createdAt'] as Timestamp?;
+                                final createdAt =
+                                    comment['createdAt'] as Timestamp?;
                                 final timeAgo = createdAt != null
                                     ? _formatTimeAgo(createdAt.toDate())
                                     : 'Bilinmiyor';
-                                
+
                                 // Güvenli userName erişimi ve formatlaması
                                 String userName = 'Bilinmeyen Kullanıcı';
-                                if (comment['userName'] != null && comment['userName'].toString().trim().isNotEmpty) {
-                                  userName = comment['userName'].toString().trim();
-                                } else if (comment['userEmail'] != null && comment['userEmail'].toString().trim().isNotEmpty) {
+                                if (comment['userName'] != null &&
+                                    comment['userName']
+                                        .toString()
+                                        .trim()
+                                        .isNotEmpty) {
+                                  userName =
+                                      comment['userName'].toString().trim();
+                                } else if (comment['userEmail'] != null &&
+                                    comment['userEmail']
+                                        .toString()
+                                        .trim()
+                                        .isNotEmpty) {
                                   // Email'den kullanıcı adı çıkar
                                   final email = comment['userEmail'].toString();
                                   if (email.contains('@')) {
@@ -1626,18 +2102,26 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                     userName = email;
                                   }
                                 }
-                                
+
                                 // Kullanıcı adını güzelleştir (ilk harfleri büyük yap)
-                                userName = userName.split(' ').map((word) => 
-                                  word.isNotEmpty ? word[0].toUpperCase() + word.substring(1).toLowerCase() : word
-                                ).join(' ');
-                                
-                                final userInitial = userName.isNotEmpty ? userName[0].toUpperCase() : 'U';
-                                
+                                userName = userName
+                                    .split(' ')
+                                    .map((word) => word.isNotEmpty
+                                        ? word[0].toUpperCase() +
+                                            word.substring(1).toLowerCase()
+                                        : word)
+                                    .join(' ');
+
+                                final userInitial = userName.isNotEmpty
+                                    ? userName[0].toUpperCase()
+                                    : 'U';
+
                                 return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Row(
                                         children: [
@@ -1655,7 +2139,8 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
                                               children: [
                                                 Text(
                                                   userName,
@@ -1677,7 +2162,8 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                           ),
                                           // 3 nokta menüsü (her yorum için)
                                           IconButton(
-                                            onPressed: () => _showCommentOptions(comment),
+                                            onPressed: () =>
+                                                _showCommentOptions(comment),
                                             icon: const Icon(
                                               Icons.more_vert,
                                               color: Colors.white54,
@@ -1706,7 +2192,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                 ),
               ),
             ),
-            
+
             // Banner reklamı
             if (_isBannerAdLoaded && _bannerAd != null)
               SizedBox(

@@ -6,26 +6,28 @@ import 'package:videoapp/screens/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Firebase ve AdMob başlatma
   await Firebase.initializeApp();
+
   await MobileAds.instance.initialize();
-  
+
   // Sistem UI'ı tamamen yapılandıralım
   await SystemChrome.setEnabledSystemUIMode(
     SystemUiMode.manual,
     overlays: [SystemUiOverlay.top, SystemUiOverlay.bottom],
   );
-  
+
   // Ekran yönünü dikey olarak sabitle
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  
+
   // Sistem UI ayarları - Gezinti çubuğu ve durum çubuğu ayarları
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent, // Durum çubuğu şeffaf
       statusBarIconBrightness: Brightness.light, // Durum çubuğu simgeleri beyaz
-      systemNavigationBarIconBrightness: Brightness.light, // Gezinti çubuğu simgeleri beyaz
+      systemNavigationBarIconBrightness:
+          Brightness.light, // Gezinti çubuğu simgeleri beyaz
     ),
   );
 
@@ -51,7 +53,8 @@ class MyApp extends StatelessWidget {
         textSelectionTheme: const TextSelectionThemeData(
           cursorColor: Colors.blueAccent, // İmleç rengi
           selectionHandleColor: Colors.blueAccent, // İmleç uçlarındaki balonlar
-          selectionColor: Colors.blueAccent, // Metin seçim rengi (transparanlık otomatik)
+          selectionColor:
+              Colors.blueAccent, // Metin seçim rengi (transparanlık otomatik)
         ),
       ),
       home: const SplashScreen(),

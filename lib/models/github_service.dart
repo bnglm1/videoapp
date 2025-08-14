@@ -6,16 +6,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class GitHubService {
   // GitHub raw file URL'inizi buraya yazın
   // Örnek: https://raw.githubusercontent.com/kullanici_adi/repo_adi/main/series.json
-  static const String _githubJsonUrl = 'https://raw.githubusercontent.com/playtoon1/content-json/refs/heads/main/content.json';
-  
+  static const String _githubJsonUrl =
+      'https://raw.githubusercontent.com/playtoon1/content-json/refs/heads/main/content.json';
+
   // Wikipedia API endpoints
   static const String _wikipediaApiUrl = 'https://tr.wikipedia.org/api/rest_v1';
-  static const String _wikipediaSearchUrl = 'https://tr.wikipedia.org/w/api.php';
+  static const String _wikipediaSearchUrl =
+      'https://tr.wikipedia.org/w/api.php';
 
   Future<List<Series>> fetchSeries() async {
     try {
       print("GitHub'dan veri çekiliyor: $_githubJsonUrl");
-      
+
       final response = await http.get(
         Uri.parse(_githubJsonUrl),
         headers: {
@@ -23,20 +25,21 @@ class GitHubService {
           'User-Agent': 'Flutter App',
         },
       );
-      
+
       print("HTTP Status Code: ${response.statusCode}");
       print("Response Headers: ${response.headers}");
-      
+
       if (response.statusCode == 200) {
         final String jsonString = response.body;
         print("JSON Response length: ${jsonString.length}");
-        print("First 200 chars: ${jsonString.length > 200 ? jsonString.substring(0, 200) : jsonString}");
-        
+        print(
+            "First 200 chars: ${jsonString.length > 200 ? jsonString.substring(0, 200) : jsonString}");
+
         if (jsonString.isEmpty) {
           print("Boş JSON response alındı");
           return [];
         }
-        
+
         late Map<String, dynamic> jsonData;
         try {
           jsonData = json.decode(jsonString);
@@ -45,23 +48,25 @@ class GitHubService {
           print("JSON decode hatası: $e");
           return [];
         }
-        
+
         List<Series> seriesList = [];
-        
+
         // JSON yapısını kontrol et
         if (jsonData.containsKey('series')) {
           print("'series' key'i bulundu");
           var seriesData = jsonData['series'];
           print("Series data type: ${seriesData.runtimeType}");
-          
+
           if (seriesData is Map) {
             print("Series Map formatında, ${seriesData.length} adet seri");
-            Map<String, dynamic> seriesMap = Map<String, dynamic>.from(seriesData);
-            
+            Map<String, dynamic> seriesMap =
+                Map<String, dynamic>.from(seriesData);
+
             seriesMap.forEach((key, value) {
               try {
                 print("İşleniyor: $key");
-                Map<String, dynamic> seriesItemData = _convertToStringDynamicMap(value);
+                Map<String, dynamic> seriesItemData =
+                    _convertToStringDynamicMap(value);
                 Series series = Series.fromJson(seriesItemData);
                 seriesList.add(series);
                 print("✓ İşlenen seri: ${series.title}");
@@ -74,11 +79,12 @@ class GitHubService {
           } else if (seriesData is List) {
             print("Series List formatında, ${seriesData.length} adet seri");
             List<dynamic> seriesArray = List<dynamic>.from(seriesData);
-            
+
             for (int i = 0; i < seriesArray.length; i++) {
               try {
                 print("İşleniyor index: $i");
-                Map<String, dynamic> seriesItemData = _convertToStringDynamicMap(seriesArray[i]);
+                Map<String, dynamic> seriesItemData =
+                    _convertToStringDynamicMap(seriesArray[i]);
                 Series series = Series.fromJson(seriesItemData);
                 seriesList.add(series);
                 print("✓ İşlenen seri: ${series.title}");
@@ -91,14 +97,16 @@ class GitHubService {
             print("Beklenmeyen series data formatı: ${seriesData.runtimeType}");
           }
         } else {
-          print("JSON'da 'series' key'i bulunamadı. Mevcut keys: ${jsonData.keys.toList()}");
-          
+          print(
+              "JSON'da 'series' key'i bulunamadı. Mevcut keys: ${jsonData.keys.toList()}");
+
           // Eğer JSON direkt olarak series array'i ise
           if (jsonData is List) {
             print("JSON direkt List formatında");
             for (int i = 0; i < jsonData.length; i++) {
               try {
-                Map<String, dynamic> seriesItemData = _convertToStringDynamicMap(jsonData[i]);
+                Map<String, dynamic> seriesItemData =
+                    _convertToStringDynamicMap(jsonData[i]);
                 Series series = Series.fromJson(seriesItemData);
                 seriesList.add(series);
                 print("✓ İşlenen seri: ${series.title}");
@@ -108,7 +116,7 @@ class GitHubService {
             }
           }
         }
-        
+
         print("GitHub'dan yüklenen seri sayısı: ${seriesList.length}");
         return seriesList;
       } else {
@@ -127,18 +135,19 @@ class GitHubService {
     try {
       // Tüm serileri çek ve ID'ye göre filtrele
       final allSeries = await fetchSeries();
-      
+
       // ID'ye göre seriyi bul (JSON'daki key ile eşleştir)
       for (var series in allSeries) {
         // Eğer series modeline id field'ı eklediyseniz:
         // if (series.id == id) return series;
-        
+
         // Alternatif olarak title veya başka bir özellikle kontrol edebilirsiniz
-        if (series.title.toLowerCase().replaceAll(' ', '') == id.toLowerCase()) {
+        if (series.title.toLowerCase().replaceAll(' ', '') ==
+            id.toLowerCase()) {
           return series;
         }
       }
-      
+
       print("ID'si $id olan seri bulunamadı.");
       return null;
     } catch (e) {
@@ -152,21 +161,19 @@ class GitHubService {
     if (value is Map<String, dynamic>) {
       return value;
     }
-    
+
     // Handle different map types
     if (value is Map) {
-      return value.map<String, dynamic>(
-        (key, value) => MapEntry(key.toString(), 
+      return value.map<String, dynamic>((key, value) => MapEntry(
+          key.toString(),
           // Recursively convert nested maps and lists
-          value is Map 
-            ? _convertToStringDynamicMap(value)
-            : value is List
-              ? _convertListToDynamic(value)
-              : value
-        )
-      );
+          value is Map
+              ? _convertToStringDynamicMap(value)
+              : value is List
+                  ? _convertListToDynamic(value)
+                  : value));
     }
-    
+
     // If not a map, return an empty map
     print("Uyarı: Geçersiz veri türü - ${value.runtimeType}");
     return {};
@@ -175,7 +182,7 @@ class GitHubService {
   // Utility method to convert lists with mixed types
   List<dynamic> _convertListToDynamic(List? list) {
     if (list == null) return [];
-    
+
     return list.map((item) {
       if (item is Map) {
         return _convertToStringDynamicMap(item);
@@ -191,7 +198,7 @@ class GitHubService {
   Future<Map<String, dynamic>?> fetchEpisodeDetails(String episodeId) async {
     try {
       print("Episode detayları getiriliyor: $episodeId");
-      
+
       // Önce tüm series verilerini getir
       final response = await http.get(
         Uri.parse(_githubJsonUrl),
@@ -200,14 +207,14 @@ class GitHubService {
           'User-Agent': 'Flutter App',
         },
       );
-      
+
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
-        
+
         // Episode'u tüm series'lerde ara
         if (jsonData.containsKey('series')) {
           final seriesData = jsonData['series'];
-          
+
           if (seriesData is Map) {
             for (var seriesEntry in seriesData.entries) {
               final series = seriesEntry.value;
@@ -222,15 +229,17 @@ class GitHubService {
                         final episode = episodes[episodeId];
                         if (episode is Map) {
                           // Episode bilgilerini döndür
-                          Map<String, dynamic> episodeDetails = Map<String, dynamic>.from(episode);
-                          
+                          Map<String, dynamic> episodeDetails =
+                              Map<String, dynamic>.from(episode);
+
                           // Ek meta bilgiler ekle
                           episodeDetails['seriesId'] = seriesEntry.key;
                           episodeDetails['seriesTitle'] = series['title'] ?? '';
                           episodeDetails['seasonId'] = seasonEntry.key;
                           episodeDetails['episodeId'] = episodeId;
-                          
-                          print("Episode detayları bulundu: ${episodeDetails['title']}");
+
+                          print(
+                              "Episode detayları bulundu: ${episodeDetails['title']}");
                           return episodeDetails;
                         }
                       }
@@ -242,7 +251,7 @@ class GitHubService {
           }
         }
       }
-      
+
       print("Episode detayları bulunamadı: $episodeId");
       return null;
     } catch (e) {
@@ -252,10 +261,12 @@ class GitHubService {
   }
 
   // İlgili bölümleri getir (aynı seri/sezon)
-  Future<List<Map<String, dynamic>>> fetchRelatedEpisodes(String seriesId, String seasonId, {int limit = 5}) async {
+  Future<List<Map<String, dynamic>>> fetchRelatedEpisodes(
+      String seriesId, String seasonId,
+      {int limit = 5}) async {
     try {
       print("İlgili bölümler getiriliyor: $seriesId/$seasonId");
-      
+
       final response = await http.get(
         Uri.parse(_githubJsonUrl),
         headers: {
@@ -263,33 +274,32 @@ class GitHubService {
           'User-Agent': 'Flutter App',
         },
       );
-      
+
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
         List<Map<String, dynamic>> relatedEpisodes = [];
-        
+
         if (jsonData.containsKey('series')) {
           final seriesData = jsonData['series'];
-          
-          if (seriesData is Map && 
-              seriesData.containsKey(seriesId) && 
+
+          if (seriesData is Map &&
+              seriesData.containsKey(seriesId) &&
               seriesData[seriesId] is Map) {
-            
             final series = seriesData[seriesId];
-            if (series.containsKey('seasons') && 
+            if (series.containsKey('seasons') &&
                 series['seasons'] is Map &&
                 series['seasons'].containsKey(seasonId)) {
-              
               final season = series['seasons'][seasonId];
               if (season is Map && season.containsKey('episodes')) {
                 final episodes = season['episodes'];
-                
+
                 if (episodes is Map) {
                   var episodeEntries = episodes.entries.take(limit).toList();
-                  
+
                   for (var entry in episodeEntries) {
                     if (entry.value is Map) {
-                      Map<String, dynamic> episode = Map<String, dynamic>.from(entry.value);
+                      Map<String, dynamic> episode =
+                          Map<String, dynamic>.from(entry.value);
                       episode['episodeId'] = entry.key;
                       episode['seriesId'] = seriesId;
                       episode['seasonId'] = seasonId;
@@ -301,11 +311,11 @@ class GitHubService {
             }
           }
         }
-        
+
         print("${relatedEpisodes.length} ilgili bölüm bulundu");
         return relatedEpisodes;
       }
-      
+
       return [];
     } catch (e) {
       print("İlgili bölümler getirme hatası: $e");
@@ -317,7 +327,7 @@ class GitHubService {
   Future<Map<String, dynamic>?> fetchSeriesInfo(String seriesId) async {
     try {
       print("Seri bilgileri getiriliyor: $seriesId");
-      
+
       final response = await http.get(
         Uri.parse(_githubJsonUrl),
         headers: {
@@ -325,26 +335,27 @@ class GitHubService {
           'User-Agent': 'Flutter App',
         },
       );
-      
+
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
-        
+
         if (jsonData.containsKey('series')) {
           final seriesData = jsonData['series'];
-          
+
           if (seriesData is Map && seriesData.containsKey(seriesId)) {
             final series = seriesData[seriesId];
             if (series is Map) {
-              Map<String, dynamic> seriesInfo = Map<String, dynamic>.from(series);
+              Map<String, dynamic> seriesInfo =
+                  Map<String, dynamic>.from(series);
               seriesInfo['seriesId'] = seriesId;
-              
+
               print("Seri bilgileri bulundu: ${seriesInfo['title']}");
               return seriesInfo;
             }
           }
         }
       }
-      
+
       return null;
     } catch (e) {
       print("Seri bilgileri getirme hatası: $e");
@@ -356,7 +367,7 @@ class GitHubService {
   Future<List<Map<String, dynamic>>> searchWikipedia(String query) async {
     try {
       print("Wikipedia'da aranan: $query");
-      
+
       final searchParams = {
         'action': 'query',
         'format': 'json',
@@ -366,9 +377,10 @@ class GitHubService {
         'srprop': 'snippet|titlesnippet',
         'formatversion': '2',
       };
-      
-      final uri = Uri.parse(_wikipediaSearchUrl).replace(queryParameters: searchParams);
-      
+
+      final uri =
+          Uri.parse(_wikipediaSearchUrl).replace(queryParameters: searchParams);
+
       final response = await http.get(
         uri,
         headers: {
@@ -376,14 +388,14 @@ class GitHubService {
           'Accept': 'application/json',
         },
       );
-      
+
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
-        
-        if (jsonData.containsKey('query') && 
+
+        if (jsonData.containsKey('query') &&
             jsonData['query'].containsKey('search')) {
           List<dynamic> searchResults = jsonData['query']['search'];
-          
+
           List<Map<String, dynamic>> results = [];
           for (var result in searchResults) {
             if (result is Map) {
@@ -394,12 +406,12 @@ class GitHubService {
               });
             }
           }
-          
+
           print("Wikipedia'da ${results.length} sonuç bulundu");
           return results;
         }
       }
-      
+
       return [];
     } catch (e) {
       print("Wikipedia arama hatası: $e");
@@ -411,11 +423,11 @@ class GitHubService {
   Future<Map<String, dynamic>?> getWikipediaSummary(String title) async {
     try {
       print("Wikipedia özeti getiriliyor: $title");
-      
+
       // Başlığı URL-safe hale getir
       final encodedTitle = Uri.encodeComponent(title);
       final summaryUrl = '$_wikipediaApiUrl/page/summary/$encodedTitle';
-      
+
       final response = await http.get(
         Uri.parse(summaryUrl),
         headers: {
@@ -423,10 +435,10 @@ class GitHubService {
           'Accept': 'application/json',
         },
       );
-      
+
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
-        
+
         return {
           'title': jsonData['title'] ?? '',
           'extract': jsonData['extract'] ?? '',
@@ -438,7 +450,7 @@ class GitHubService {
         print("Wikipedia'da sayfa bulunamadı: $title");
         return null;
       }
-      
+
       return null;
     } catch (e) {
       print("Wikipedia özet getirme hatası: $e");
@@ -447,14 +459,15 @@ class GitHubService {
   }
 
   // Wikipedia'dan dizi/film bilgisi getir (başlığa göre)
-  Future<Map<String, dynamic>?> getWikipediaInfoForSeries(String seriesTitle) async {
+  Future<Map<String, dynamic>?> getWikipediaInfoForSeries(
+      String seriesTitle) async {
     try {
       // Önce direkt başlık ile dene
       var summary = await getWikipediaSummary(seriesTitle);
       if (summary != null) {
         return summary;
       }
-      
+
       // Bulunamazsa arama yap
       var searchResults = await searchWikipedia(seriesTitle);
       if (searchResults.isNotEmpty) {
@@ -463,7 +476,7 @@ class GitHubService {
         summary = await getWikipediaSummary(firstResultTitle);
         return summary;
       }
-      
+
       return null;
     } catch (e) {
       print("Wikipedia seri bilgisi getirme hatası: $e");
@@ -472,7 +485,8 @@ class GitHubService {
   }
 
   // Wikipedia'dan bölüm bilgisi getir
-  Future<Map<String, dynamic>?> getWikipediaInfoForEpisode(String episodeTitle, String seriesTitle) async {
+  Future<Map<String, dynamic>?> getWikipediaInfoForEpisode(
+      String episodeTitle, String seriesTitle) async {
     try {
       // Önce "SeriesTitle episodeTitle" formatında dene
       String combinedTitle = "$seriesTitle $episodeTitle";
@@ -480,13 +494,13 @@ class GitHubService {
       if (summary != null) {
         return summary;
       }
-      
+
       // Sonra sadece bölüm başlığı ile dene
       summary = await getWikipediaSummary(episodeTitle);
       if (summary != null) {
         return summary;
       }
-      
+
       // Son olarak arama yap
       var searchResults = await searchWikipedia("$seriesTitle $episodeTitle");
       if (searchResults.isNotEmpty) {
@@ -494,7 +508,7 @@ class GitHubService {
         summary = await getWikipediaSummary(firstResultTitle);
         return summary;
       }
-      
+
       return null;
     } catch (e) {
       print("Wikipedia bölüm bilgisi getirme hatası: $e");
@@ -507,7 +521,7 @@ class GitHubService {
     try {
       final allSeries = await fetchSeries();
       List<Map<String, dynamic>> allEpisodes = [];
-      
+
       for (var series in allSeries) {
         for (var season in series.seasons) {
           for (var episode in season.episodes) {
@@ -525,20 +539,21 @@ class GitHubService {
           }
         }
       }
-      
+
       return allEpisodes;
     } catch (e) {
       print("Tüm episode listesi getirme hatası: $e");
       return [];
     }
   }
-  
+
   // Belirli bir serinin tüm bölümlerini getir
-  Future<List<Map<String, dynamic>>> getSeriesEpisodes(String seriesTitle) async {
+  Future<List<Map<String, dynamic>>> getSeriesEpisodes(
+      String seriesTitle) async {
     try {
       final allSeries = await fetchSeries();
       List<Map<String, dynamic>> seriesEpisodes = [];
-      
+
       for (var series in allSeries) {
         if (series.title.toLowerCase() == seriesTitle.toLowerCase()) {
           for (var season in series.seasons) {
@@ -559,32 +574,33 @@ class GitHubService {
           break;
         }
       }
-      
+
       return seriesEpisodes;
     } catch (e) {
       print("Seri episode listesi getirme hatası: $e");
       return [];
     }
   }
-  
+
   // Belirli bir episode'un index'ini bulur
-  Future<int?> findEpisodeIndex(String episodeTitle, String? seriesTitle) async {
+  Future<int?> findEpisodeIndex(
+      String episodeTitle, String? seriesTitle) async {
     try {
       List<Map<String, dynamic>> episodeList;
-      
+
       if (seriesTitle != null && seriesTitle.isNotEmpty) {
         episodeList = await getSeriesEpisodes(seriesTitle);
       } else {
         episodeList = await getAllEpisodesFlat();
       }
-      
+
       for (int i = 0; i < episodeList.length; i++) {
-        if (episodeList[i]['title'].toString().toLowerCase() == 
+        if (episodeList[i]['title'].toString().toLowerCase() ==
             episodeTitle.toLowerCase()) {
           return i;
         }
       }
-      
+
       return null;
     } catch (e) {
       print("Episode index bulma hatası: $e");
@@ -597,27 +613,28 @@ class GitHubService {
     try {
       final firestore = FirebaseFirestore.instance;
       final videosSnapshot = await firestore.collection('videos').get();
-      
+
       Map<String, int> seriesViewCounts = {};
-      
+
       for (var doc in videosSnapshot.docs) {
         final data = doc.data();
         final title = data['title'] as String?;
         final views = (data['views'] as num?)?.toInt() ?? 0;
-        
+
         if (title != null && title.isNotEmpty) {
           // Seri adını bölüm başlığından çıkar
           // Örnek: "Attack on Titan 1. Sezon 1. Bölüm" -> "Attack on Titan"
           String seriesName = _extractSeriesName(title);
-          
+
           if (seriesViewCounts.containsKey(seriesName)) {
-            seriesViewCounts[seriesName] = seriesViewCounts[seriesName]! + views;
+            seriesViewCounts[seriesName] =
+                seriesViewCounts[seriesName]! + views;
           } else {
             seriesViewCounts[seriesName] = views;
           }
         }
       }
-      
+
       return seriesViewCounts;
     } catch (e) {
       print("Seri izlenme sayıları hesaplanırken hata: $e");
@@ -629,7 +646,7 @@ class GitHubService {
   String _extractSeriesName(String episodeTitle) {
     // Yaygın kalıpları temizle
     String cleanTitle = episodeTitle;
-    
+
     // "1. Sezon", "Sezon 1", "Bölüm 1" gibi ifadeleri kaldır
     final patterns = [
       RegExp(r'\s*\d+\.\s*Sezon.*', caseSensitive: false),
@@ -639,11 +656,11 @@ class GitHubService {
       RegExp(r'\s*Episode\s*\d+.*', caseSensitive: false),
       RegExp(r'\s*S\d+E\d+.*', caseSensitive: false),
     ];
-    
+
     for (var pattern in patterns) {
       cleanTitle = cleanTitle.replaceFirst(pattern, '');
     }
-    
+
     return cleanTitle.trim();
   }
 }
