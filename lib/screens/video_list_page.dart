@@ -125,6 +125,7 @@ class _VideoListPageState extends State<VideoListPage>
     _bannerAd.load();
   }
 
+  // Ana serileri yükle ve kategorilere göre grupla
   Future<void> _loadSeries() async {
     try {
       print("Seri yükleme başlıyor...");
@@ -132,12 +133,16 @@ class _VideoListPageState extends State<VideoListPage>
 
       print("Alınan seri sayısı: ${allSeries.length}");
 
-      // Serileri `type` özelliğine göre gruplandır
+      // YENİ: Sadece bu 7 kategori
       Map<String, List<Series>> groupedSeries = {
-        "Önerilenler": [],
-        "AnimetoonTr İçerikleri": [],
-        "Yeni Eklenenler": [],
-        "Filmler": [],
+        "Aksiyon & Macera": [],
+        "Anime": [],
+        "Spor": [],
+        "Aile": [],
+        "Komedi": [],
+        "Dram": [],
+        "Kült": [],
+        "Dövüş": [],
       };
 
       for (var series in allSeries) {
@@ -603,24 +608,30 @@ class _VideoListPageState extends State<VideoListPage>
         children: [
           _buildFeaturedContent(),
           const SizedBox(height: 16.0),
-          // Popüler Bölümler bölümü EN ÜSTE taşındı
+          // Popüler Bölümler
           _buildPopularEpisodesSection(),
-          if (groupedSeriesList["Önerilenler"]!.isNotEmpty) ...[
-            _buildSectionTitle("Önerilenler"),
-            _buildHorizontalList(groupedSeriesList["Önerilenler"]!),
-          ],
-          if (groupedSeriesList["AnimetoonTr İçerikleri"]!.isNotEmpty) ...[
-            _buildSectionTitle("AnimetoonTr İçerikleri"),
-            _buildHorizontalList(groupedSeriesList["AnimetoonTr İçerikleri"]!),
-          ],
-          if (groupedSeriesList["Yeni Eklenenler"]!.isNotEmpty) ...[
-            _buildSectionTitle("Yeni Eklenenler"),
-            _buildHorizontalList(groupedSeriesList["Yeni Eklenenler"]!),
-          ],
-          if (groupedSeriesList["Filmler"]!.isNotEmpty) ...[
-            _buildSectionTitle("Filmler"),
-            _buildHorizontalList(groupedSeriesList["Filmler"]!),
-          ],
+
+          // YENİ: Sadece bu 7 kategori sırayla gösteriliyor
+          ...[
+            "Aksiyon & Macera",
+            "Anime",
+            "Spor",
+            "Aile",
+            "Komedi",
+            "Dram",
+            "Kült",
+            "Dövüş"
+          ].map((category) {
+            final items = groupedSeriesList[category] ?? [];
+            if (items.isEmpty) return const SizedBox.shrink();
+            return Column(
+              children: [
+                _buildSectionTitle(category),
+                _buildHorizontalList(items),
+              ],
+            );
+          }).toList(),
+
           const SizedBox(height: 20.0),
         ],
       ),
