@@ -129,33 +129,17 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   Widget _buildWebViewPlayer() {
     return Stack(
       children: [
-        WebViewWidget(
-          controller: _webViewController!,
-        ),
-        // Sağ üst köşede kontrol butonları
+        WebViewWidget(controller: _webViewController!),
+
+        // Sadece native'de gösterilecek butonlar → burada YOK
+
+        // Yalnızca "Tam Ekran" butonu göster (isteğe bağlı)
         Positioned(
           right: 8,
           top: 8,
-          child: Row(
-            children: [
-              // Oynat/Duraklat butonu
-              _buildMiniControlButton(
-                icon: _isWebViewVideoPlaying ? Icons.pause : Icons.play_arrow,
-                onTap: () {
-                  if (_isWebViewVideoPlaying) {
-                    _pauseWebViewVideo(); // Call actual pause for WebView
-                  } else {
-                    _playWebViewVideo(); // Call actual play for WebView
-                  }
-                },
-              ),
-              const SizedBox(width: 8),
-              // Tam ekran butonu
-              _buildMiniControlButton(
-                icon: Icons.fullscreen,
-                onTap: _navigateToFullScreenPlayer,
-              ),
-            ],
+          child: _buildMiniControlButton(
+            icon: Icons.fullscreen,
+            onTap: _navigateToVideoPlayer,
           ),
         ),
       ],
