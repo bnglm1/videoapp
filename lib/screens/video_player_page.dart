@@ -42,12 +42,81 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   Key _webViewKey = const ValueKey('webview_0'); // EKLENDİ
 
+  // Yeni: Ekran oranı
+  double _aspectRatio = 16 / 9; // Varsayılan
+  final Map<String, double> _aspectRatios = {
+    '16:9 (Standart)': 16 / 9,
+    '21:9 (Sinema)': 21 / 9,
+    '4:3 (Eski TV)': 4 / 3,
+    '1:1 (Kare)': 1.0,
+    'Tam Ekran': -1, // Özel: BoxFit.cover ile tam ekran
+  };
+
   @override
   void initState() {
     super.initState();
+    _loadAspectRatio(); // Kayıtlı oranı yükle
     _setupFullScreen();
     _determinePlayerType();
     _initializePlayer();
+  }
+
+  // Kayıtlı oranı yükle
+  Future<void> _loadAspectRatio() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedRatio = prefs.getDouble('aspect_ratio') ?? (16 / 9);
+    if (mounted) {
+      setState(() {
+        _aspectRatio = savedRatio;
+      });
+    }
+  }
+
+  // Oranı kaydet
+  Future<void> _saveAspectRatio(double ratio) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('aspect_ratio', ratio);
+  }
+
+  void _showAspectRatioMenu() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(
+          'Ekran Oranı',
+          style: TextStyle(color: Colors.white),
+        ),
+        backgroundColor: Colors.grey[900],
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView(
+            shrinkWrap: true,
+            children: _aspectRatios.entries
+                .map(
+                  (entry) => RadioListTile<double>(
+                    title: Text(
+                      entry.key,
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    value: entry.value,
+                    groupValue: _aspectRatio,
+                    activeColor: Colors.red,
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          _aspectRatio = value;
+                        });
+                        _saveAspectRatio(value);
+                        Navigator.pop(context);
+                      }
+                    },
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -55,8 +124,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     _exitFullScreen();
     _hideControlsTimer?.cancel();
 
-    // Pozisyonu arka planda kaydet
-    _savePositionInBackground();
+    // Pozisyonu kaydet
+    if (_videoController != null && _videoController!.value.isInitialized) {
+      _savePositionInBackground();
+    }
 
     _videoController?.dispose();
     super.dispose();
@@ -353,6 +424,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
     if (_showControls) {
       _startHideControlsTimer();
+    } else {
+      _hideControlsTimer?.cancel();
     }
   }
 
@@ -414,42 +487,165 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: PopScope(
-        onPopInvokedWithResult: (didPop, result) {
-          _exitFullScreen();
-        },
+        onPopInvokedWithResult: (didPop, result) => _exitFullScreen(),
         child: Stack(
           children: [
-            // Ana video/webview widget
-            Positioned.fill(
-              child: _buildMainContent(),
-            ),
+            // 1. ANA İÇERİK (Video)
+            _buildMainContent(),
 
-            // Geri butonu (her zaman görünür)
-            Positioned(
-              top: 40,
-              left: 16,
-              child: SafeArea(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.7),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.of(context).pop(),
+            // 2. GESTURE DETECTOR: Tüm ekranı kaplasın
+            if (!_useWebView)
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: _toggleControls,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    color: Colors.transparent,
                   ),
                 ),
               ),
-            ),
 
-            // Kontroller (sadece native video için)
+            // 3. WEBVIEW İÇİN GESTURE DETECTOR: Video alanını hariç tut
+            if (_useWebView) _buildWebViewGestureDetector(),
+
+            // 3. VİDEO KONTROLLERİ (En altta olacak)
             if (!_useWebView && _showControls) _buildVideoControls(),
 
-            // WebView kontrolleri
-            if (_useWebView && _showControls) _buildWebViewControls(),
+            // 4. ÜST BUTONLAR (Video kontrollerinin üstünde olacak)
+            if (_showControls) ...[
+              // Geri Butonu
+              Positioned(
+                top: 40,
+                left: 16,
+                child: SafeArea(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.arrow_back, color: Colors.white),
+                        onPressed: () => Navigator.of(context).pop(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Ayar Butonu
+              Positioned(
+                top: 40,
+                right: 16,
+                child: SafeArea(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: IconButton(
+                        icon: const Icon(Icons.settings, color: Colors.white),
+                        onPressed: _showAspectRatioMenu,
+                        tooltip: 'Ekran Oranı',
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+
+            // 5. WEBVIEW KONTROLLERİ (Sadece WebView için, ayarı sağ tarafta tutmak için)
+            if (_useWebView && _showControls) _buildWebViewExtraControls(),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildWebViewGestureDetector() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // WebView'ın boyutlarını hesapla
+        double videoWidth = constraints.maxWidth;
+        double videoHeight =
+            videoWidth / (_aspectRatio > 0 ? _aspectRatio : 16 / 9);
+
+        if (videoHeight > constraints.maxHeight) {
+          videoHeight = constraints.maxHeight;
+          videoWidth = videoHeight * (_aspectRatio > 0 ? _aspectRatio : 16 / 9);
+        }
+
+        // Video merkezi hesapla
+        final centerX = constraints.maxWidth / 2;
+        final centerY = constraints.maxHeight / 2;
+        final videoLeft = centerX - (videoWidth / 2);
+        final videoTop = centerY - (videoHeight / 2);
+        final videoRight = centerX + (videoWidth / 2);
+        final videoBottom = centerY + (videoHeight / 2);
+
+        return Stack(
+          children: [
+            // Sol alan
+            if (videoLeft > 0)
+              Positioned(
+                left: 0,
+                top: 0,
+                width: videoLeft,
+                height: constraints.maxHeight,
+                child: GestureDetector(
+                  onTap: _toggleControls,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+
+            // Sağ alan
+            if (videoRight < constraints.maxWidth)
+              Positioned(
+                left: videoRight,
+                top: 0,
+                width: constraints.maxWidth - videoRight,
+                height: constraints.maxHeight,
+                child: GestureDetector(
+                  onTap: _toggleControls,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+
+            // Üst alan
+            if (videoTop > 0)
+              Positioned(
+                left: videoLeft,
+                top: 0,
+                width: videoWidth,
+                height: videoTop,
+                child: GestureDetector(
+                  onTap: _toggleControls,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+
+            // Alt alan
+            if (videoBottom < constraints.maxHeight)
+              Positioned(
+                left: videoLeft,
+                top: videoBottom,
+                width: videoWidth,
+                height: constraints.maxHeight - videoBottom,
+                child: GestureDetector(
+                  onTap: _toggleControls,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -530,72 +726,90 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   Widget _buildWebViewPlayer() {
     if (_webViewController == null) {
-      return const Center(
-        child: Text(
-          'WebView başlatılamadı',
-          style: TextStyle(color: Colors.white),
-        ),
-      );
+      return const Center(child: Text('WebView başlatılamadı'));
     }
 
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: Colors.black,
-      child: Stack(
-        children: [
-          // WebView
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _toggleControls,
-              child: WebViewWidget(
-                key: _webViewKey,
-                controller:
-                    _webViewController!, // Use the initialized controller
-              ),
-            ),
-          ),
+    return Center(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          double width = constraints.maxWidth;
+          double height = width / (_aspectRatio > 0 ? _aspectRatio : 16 / 9);
 
-          // Loading indicator
-          if (_isLoading)
-            const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    color: Colors.red,
-                    strokeWidth: 3,
+          if (height > constraints.maxHeight) {
+            height = constraints.maxHeight;
+            width = height * (_aspectRatio > 0 ? _aspectRatio : 16 / 9);
+          }
+
+          return SizedBox(
+            width: width,
+            height: height,
+            child: Stack(
+              children: [
+                // WebView
+                Positioned.fill(
+                  child: WebViewWidget(
+                    key: _webViewKey,
+                    controller: _webViewController!,
                   ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Video yükleniyor...',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
+                ),
+
+                // Loading overlay
+                if (_isLoading)
+                  Positioned.fill(
+                    child: Container(
+                      color: Colors.black87,
+                      child: const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(color: Colors.red),
+                            SizedBox(height: 16),
+                            Text('Yükleniyor...',
+                                style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
-        ],
+          );
+        },
       ),
     );
   }
 
   Widget _buildNativeVideoPlayer() {
     if (_videoController == null || !_videoController!.value.isInitialized) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.red),
-      );
+      return const Center(child: CircularProgressIndicator(color: Colors.red));
     }
 
-    return GestureDetector(
-      onTap: _toggleControls,
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: _videoController!.value.aspectRatio,
-          child: VideoPlayer(_videoController!),
-        ),
+    return Center(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final videoAspectRatio = _videoController!.value.aspectRatio;
+          double width = constraints.maxWidth * 0.95;
+          double height =
+              width / (_aspectRatio > 0 ? _aspectRatio : videoAspectRatio);
+
+          if (height > constraints.maxHeight * 0.95) {
+            height = constraints.maxHeight * 0.95;
+            width =
+                height * (_aspectRatio > 0 ? _aspectRatio : videoAspectRatio);
+          }
+
+          return SizedBox(
+            width: width,
+            height: height,
+            child: Container(
+              color: Colors.black,
+              child: AspectRatio(
+                aspectRatio: videoAspectRatio,
+                child: VideoPlayer(_videoController!),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -605,54 +819,51 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       return const SizedBox.shrink();
     }
 
-    return Positioned.fill(
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
       child: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Colors.black.withValues(alpha: 0.3),
               Colors.transparent,
-              Colors.black.withValues(alpha: 0.7),
+              Colors.black.withOpacity(0.7),
             ],
           ),
         ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
           children: [
             // Video progress
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: VideoProgressIndicator(
-                _videoController!,
-                allowScrubbing: true,
-                colors: const VideoProgressColors(
-                  playedColor: Colors.red,
-                  bufferedColor: Colors.grey,
-                  backgroundColor: Colors.white24,
-                ),
+            VideoProgressIndicator(
+              _videoController!,
+              allowScrubbing: true,
+              colors: const VideoProgressColors(
+                playedColor: Colors.red,
+                bufferedColor: Colors.grey,
+                backgroundColor: Colors.white24,
               ),
             ),
 
             const SizedBox(height: 8),
 
             // Zaman bilgisi
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _formatDuration(_videoController!.value.position),
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
-                  ),
-                  Text(
-                    _formatDuration(_videoController!.value.duration),
-                    style: const TextStyle(color: Colors.white, fontSize: 14),
-                  ),
-                ],
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _formatDuration(_videoController!.value.position),
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                Text(
+                  _formatDuration(_videoController!.value.duration),
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ],
             ),
 
             const SizedBox(height: 16),
@@ -661,100 +872,77 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                IconButton(
-                  onPressed: _seekBackward,
-                  icon: const Icon(Icons.replay_10,
-                      color: Colors.white, size: 32),
+                Material(
+                  color: Colors.transparent,
+                  child: IconButton(
+                    onPressed: _seekBackward,
+                    icon: const Icon(Icons.replay_10,
+                        color: Colors.white, size: 32),
+                  ),
                 ),
                 const SizedBox(width: 20),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.7),
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    onPressed: _togglePlayPause,
-                    icon: Icon(
-                      _videoController!.value.isPlaying
-                          ? Icons.pause
-                          : Icons.play_arrow,
-                      color: Colors.white,
-                      size: 48,
+                Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      onPressed: _togglePlayPause,
+                      icon: Icon(
+                        _videoController!.value.isPlaying
+                            ? Icons.pause
+                            : Icons.play_arrow,
+                        color: Colors.white,
+                        size: 48,
+                      ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 20),
-                IconButton(
-                  onPressed: _seekForward,
-                  icon: const Icon(Icons.forward_10,
-                      color: Colors.white, size: 32),
+                Material(
+                  color: Colors.transparent,
+                  child: IconButton(
+                    onPressed: _seekForward,
+                    icon: const Icon(Icons.forward_10,
+                        color: Colors.white, size: 32),
+                  ),
                 ),
               ],
             ),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildWebViewControls() {
+  Widget _buildWebViewExtraControls() {
     return Positioned(
       top: 40,
-      right: 16,
+      right: 80, // Ayar butonunun solunda
       child: SafeArea(
-        child: Row(
-          children: [
-            // Reload button
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.refresh, color: Colors.white),
-                onPressed: () {
-                  setState(() {
-                    _isLoading = true;
-                    _hasError = false;
-                  });
-                  _webViewController?.reload();
-                },
-                tooltip: 'Yenile',
-              ),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.7),
+              borderRadius: BorderRadius.circular(20),
             ),
-            const SizedBox(width: 8),
-            // Fullscreen toggle (no JavaScript, just placeholder)
-            /*
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.fullscreen, color: Colors.white),
-                onPressed: () {
-                  // Optionally implement fullscreen for WebView if possible
-                },
-                tooltip: 'Tam Ekran',
-              ),
+            child: IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: () {
+                setState(() {
+                  _isLoading = true;
+                  _hasError = false;
+                });
+                _webViewController?.reload();
+              },
+              tooltip: 'Yenile',
             ),
-            const SizedBox(width: 8),
-            */
-            // Close button
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () => Navigator.of(context).pop(),
-                tooltip: 'Kapat',
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
