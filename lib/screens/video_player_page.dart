@@ -100,7 +100,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                     ),
                     value: entry.value,
                     groupValue: _aspectRatio,
-                    activeColor: Colors.red,
+                    activeColor: Colors.blueAccent,
                     onChanged: (value) {
                       if (value != null) {
                         setState(() {
@@ -656,7 +656,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(
-              color: Colors.red,
+              color: Colors.blueAccent,
               strokeWidth: 3,
             ),
             SizedBox(height: 20),
@@ -762,7 +762,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            CircularProgressIndicator(color: Colors.red),
+                            CircularProgressIndicator(color: Colors.blueAccent),
                             SizedBox(height: 16),
                             Text('Yükleniyor...',
                                 style: TextStyle(color: Colors.white)),
@@ -781,7 +781,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   Widget _buildNativeVideoPlayer() {
     if (_videoController == null || !_videoController!.value.isInitialized) {
-      return const Center(child: CircularProgressIndicator(color: Colors.red));
+      return const Center(
+          child: CircularProgressIndicator(color: Colors.blueAccent));
     }
 
     return Center(
@@ -843,7 +844,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               _videoController!,
               allowScrubbing: true,
               colors: const VideoProgressColors(
-                playedColor: Colors.red,
+                playedColor: Colors.blueAccent,
                 bufferedColor: Colors.grey,
                 backgroundColor: Colors.white24,
               ),

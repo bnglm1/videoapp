@@ -1528,6 +1528,8 @@ $playStoreLink
           episodeIndex: widget.currentIndex! - 1,
           episodeList: widget.episodeList,
           currentIndex: widget.currentIndex! - 1,
+          episode:
+              previousEpisode, // ✅ EKLEME: Episode verilerini tam olarak aktar
         ),
       ),
     );
@@ -1553,6 +1555,7 @@ $playStoreLink
           episodeIndex: widget.currentIndex! + 1,
           episodeList: widget.episodeList,
           currentIndex: widget.currentIndex! + 1,
+          episode: nextEpisode, // ✅ EKLEME: Episode verilerini tam olarak aktar
         ),
       ),
     );
