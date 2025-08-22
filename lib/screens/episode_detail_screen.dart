@@ -58,7 +58,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   Timer? _hideVideoControlsTimer;
 
   // WebView kontrolü
-  WebViewController? _webViewController;
   bool _isWebViewVideoPlaying = false;
 
   // Video Sources - Yeni eklenen
@@ -96,56 +95,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // Yeni state değişkenleri ekleyin
   int _localViewCount = 0;
 
-  Widget _buildWebViewPlayer() {
-    return Stack(
-      children: [
-        WebView(
-          onWebViewCreated: (controller) {
-            _webViewController = controller;
-            _loadWebView(_currentVideoUrl);
-          },
-          javascriptMode: JavascriptMode.unrestricted,
-          zoomEnabled: false,
-          allowsInlineMediaPlayback: true,
-          gestureNavigationEnabled: false,
-          initialUrl: 'about:blank',
-        ),
-        // Sağ üst köşede kontrol butonları
-        Positioned(
-          right: 8,
-          top: 8,
-          child: Row(
-            children: [
-              // Oynat/Duraklat butonu
-              _buildMiniControlButton(
-                icon: _isWebViewVideoPlaying ? Icons.pause : Icons.play_arrow,
-                onTap: () {
-                  if (_isWebViewVideoPlaying) {
-                    // WebView içinde duraklatma yapamıyoruz ama simülasyon yapabiliriz
-                    setState(() {
-                      _isWebViewVideoPlaying = false;
-                    });
-                  } else {
-                    // Yeni HTML ile oynat
-                    _loadWebView(_currentVideoUrl);
-                    setState(() {
-                      _isWebViewVideoPlaying = true;
-                    });
-                  }
-                },
-              ),
-              const SizedBox(width: 8),
-              // Tam ekran butonu
-              _buildMiniControlButton(
-                icon: Icons.fullscreen,
-                onTap: _navigateToFullScreenPlayer,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+  late final WebViewController _webViewController;
 
   void _loadWebView(String videoUrl) {
     String htmlContent = '''
@@ -227,6 +177,56 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     _loadSeriesTitleFromGitHub();
     _loadComments();
     _loadViewCount(); // İzlenme sayısını hemen yükle
+
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..enableZoom(false)
+      ..setBackgroundColor(const Color(0x00000000))
+      ..loadRequest(Uri.parse(_currentVideoUrl));
+  }
+
+  Widget _buildWebViewPlayer() {
+    return Stack(
+      children: [
+        WebViewWidget(
+          controller: _webViewController,
+        ),
+
+        // Sağ üst köşede kontrol butonları
+        Positioned(
+          right: 8,
+          top: 8,
+          child: Row(
+            children: [
+              // Oynat/Duraklat butonu
+              _buildMiniControlButton(
+                icon: _isWebViewVideoPlaying ? Icons.pause : Icons.play_arrow,
+                onTap: () {
+                  if (_isWebViewVideoPlaying) {
+                    // WebView içinde gerçek pause yapılamıyor, simülasyon
+                    setState(() {
+                      _isWebViewVideoPlaying = false;
+                    });
+                  } else {
+                    // Yeni URL yükle
+                    _webViewController.loadRequest(Uri.parse(_currentVideoUrl));
+                    setState(() {
+                      _isWebViewVideoPlaying = true;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+              // Tam ekran butonu
+              _buildMiniControlButton(
+                icon: Icons.fullscreen,
+                onTap: _navigateToFullScreenPlayer,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -370,11 +370,56 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   }
 
   // Yorumları yükle
+  // Yorumları yükle
   Future<void> _loadComments() async {
-    print('_loadComments çağrıldı. episodeId: ${widget.episodeId}');
+    print('_loadComments çağrıldı. episodeId: "${widget.episodeId}"');
+    print('Episode title: "${widget.episodeTitle}"');
 
     if (widget.episodeId == null || widget.episodeId!.isEmpty) {
-      print('episodeId null veya boş, yorumlar yüklenmiyor');
+      print(
+          'episodeId null veya boş, title ile deneniyor: "${widget.episodeTitle}"');
+
+      // episodeId yoksa title ile dene
+      if (widget.episodeTitle.isNotEmpty) {
+        setState(() {
+          _isLoadingComments = true;
+        });
+
+        try {
+          final snapshot = await _firestore
+              .collection('comments')
+              .where('episodeId', isEqualTo: widget.episodeTitle)
+              .get(); // orderBy'ı kaldır
+
+          final comments = <Map<String, dynamic>>[];
+          for (var doc in snapshot.docs) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            comments.add(data);
+          }
+
+          // Manuel sıralama yap
+          comments.sort((a, b) {
+            final aTime = a['createdAt'] as Timestamp?;
+            final bTime = b['createdAt'] as Timestamp?;
+            if (aTime == null && bTime == null) return 0;
+            if (aTime == null) return 1;
+            if (bTime == null) return -1;
+            return bTime.compareTo(aTime);
+          });
+
+          setState(() {
+            _comments = comments;
+            _isLoadingComments = false;
+          });
+
+          print('Title ile ${comments.length} yorum yüklendi');
+          return;
+        } catch (e) {
+          print('Title ile yorum yükleme hatası: $e');
+        }
+      }
+
       setState(() {
         _isLoadingComments = false;
       });
@@ -386,31 +431,19 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     });
 
     try {
-      print(
-          'Firestore\'dan yorumlar çekiliyor. episodeId: ${widget.episodeId}');
-
-      // Önce sadece collection'a erişim test edelim
-      final testSnapshot =
-          await _firestore.collection('comments').limit(1).get();
-      print(
-          'Comments koleksiyonuna erişim testi: ${testSnapshot.docs.length} döküman bulundu');
-
       final snapshot = await _firestore
           .collection('comments')
           .where('episodeId', isEqualTo: widget.episodeId)
-          .get();
-
-      print('Firestore\'dan ${snapshot.docs.length} yorum alındı');
+          .get(); // orderBy'ı kaldır
 
       final comments = <Map<String, dynamic>>[];
       for (var doc in snapshot.docs) {
         final data = doc.data();
         data['id'] = doc.id;
         comments.add(data);
-        print('Yorum eklendi: ${data['comment']}');
       }
 
-      // Manuel olarak tarihe göre sırala (serverTimestamp sorunlarını önlemek için)
+      // Manuel sıralama yap
       comments.sort((a, b) {
         final aTime = a['createdAt'] as Timestamp?;
         final bTime = b['createdAt'] as Timestamp?;
@@ -425,15 +458,9 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         _isLoadingComments = false;
       });
 
-      print('✅ Yorumlar state\'e yüklendi. Toplam: ${_comments.length}');
-      if (_comments.isNotEmpty) {
-        print('İlk yorum: ${_comments.first['comment']}');
-      } else {
-        print('⚠️ Yorum listesi boş');
-      }
+      print('episodeId ile ${comments.length} yorum yüklendi');
     } catch (e) {
       print('Yorumlar yüklenirken hata: $e');
-      print('Hata detayı: ${e.toString()}');
       setState(() {
         _isLoadingComments = false;
       });
@@ -518,6 +545,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         'userName': userName,
         'comment': _commentController.text.trim(),
         'createdAt': FieldValue.serverTimestamp(),
+        'photoUrl': _auth.currentUser!.photoURL,
       });
 
       print('Yorum başarıyla eklendi');
@@ -1317,11 +1345,18 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   }
 
   // Önceki bölüme git
+  // Önceki bölüme git
+  // Önceki bölüme git
   void _navigateToPreviousEpisode() {
     if (widget.episodeList == null || widget.currentIndex == null) return;
     if (widget.currentIndex! <= 0) return;
 
     final previousEpisode = widget.episodeList![widget.currentIndex! - 1];
+
+    // episodeId'yi doğru şekilde al
+    String? episodeId = previousEpisode['episodeId'] ??
+        previousEpisode['id'] ??
+        previousEpisode['title']; // Fallback olarak title kullan
 
     Navigator.pushReplacement(
       context,
@@ -1331,22 +1366,28 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           episodeTitle: previousEpisode['title'] ?? 'Önceki Bölüm',
           thumbnailUrl: previousEpisode['thumbnail'],
           seriesId: widget.seriesId,
-          episodeId: previousEpisode['episodeId'],
+          episodeId: episodeId, // Bu satırı düzelttik
           seasonIndex: widget.seasonIndex,
           episodeIndex: widget.currentIndex! - 1,
           episodeList: widget.episodeList,
           currentIndex: widget.currentIndex! - 1,
+          episode: previousEpisode,
         ),
       ),
     );
   }
 
-  // Sonraki bölüme git
+// Sonraki bölüme git
   void _navigateToNextEpisode() {
     if (widget.episodeList == null || widget.currentIndex == null) return;
     if (widget.currentIndex! >= widget.episodeList!.length - 1) return;
 
     final nextEpisode = widget.episodeList![widget.currentIndex! + 1];
+
+    // episodeId'yi doğru şekilde al
+    String? episodeId = nextEpisode['episodeId'] ??
+        nextEpisode['id'] ??
+        nextEpisode['title']; // Fallback olarak title kullan
 
     Navigator.pushReplacement(
       context,
@@ -1356,11 +1397,12 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           episodeTitle: nextEpisode['title'] ?? 'Sonraki Bölüm',
           thumbnailUrl: nextEpisode['thumbnail'],
           seriesId: widget.seriesId,
-          episodeId: nextEpisode['episodeId'],
+          episodeId: episodeId, // Bu satırı düzelttik
           seasonIndex: widget.seasonIndex,
           episodeIndex: widget.currentIndex! + 1,
           episodeList: widget.episodeList,
           currentIndex: widget.currentIndex! + 1,
+          episode: nextEpisode,
         ),
       ),
     );
@@ -1918,15 +1960,30 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                                       Row(
                                         children: [
                                           CircleAvatar(
-                                            backgroundColor: Colors.red,
                                             radius: 16,
-                                            child: Text(
-                                              userInitial,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
+                                            backgroundImage:
+                                                comment['photoUrl'] != null &&
+                                                        comment['photoUrl']
+                                                            .toString()
+                                                            .isNotEmpty
+                                                    ? NetworkImage(
+                                                        comment['photoUrl'])
+                                                    : null,
+                                            backgroundColor: Colors.red,
+                                            child:
+                                                (comment['photoUrl'] == null ||
+                                                        comment['photoUrl']
+                                                            .toString()
+                                                            .isEmpty)
+                                                    ? Text(
+                                                        userInitial,
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      )
+                                                    : null,
                                           ),
                                           const SizedBox(width: 8),
                                           Expanded(
