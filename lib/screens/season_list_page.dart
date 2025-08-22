@@ -87,6 +87,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
 
   // Reklam göster veya direkt git
   void _showAdOrNavigateToEpisode(Episode episode, int episodeIndex) async {
+    // Video kaynağı kontrolünü kaldırıyoruz - her durumda bölüm detay sayfasına git
     if (_interstitialAd != null) {
       _interstitialAd!.fullScreenContentCallback = FullScreenContentCallback(
         onAdDismissedFullScreenContent: (ad) {
@@ -122,7 +123,8 @@ class _SeasonListPageState extends State<SeasonListPage> {
         context,
         MaterialPageRoute(
           builder: (context) => EpisodeDetailsPage(
-            videoUrl: episode.videoUrl, // Ana video URL'ini kullan
+            videoUrl:
+                episode.videoUrl, // Ana video URL'ini kullan (boş olsa bile)
             episodeTitle: episode.title,
             thumbnailUrl: episode.thumbnail,
             seriesId: widget.series.title,
@@ -281,7 +283,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                                       'Sezon ${widget.series.seasons[index].seasonNumber}',
                                       style: TextStyle(
                                         color: isSelected
-                                            ? Colors.black
+                                            ? Colors.white
                                             : Colors.white,
                                         fontWeight: isSelected
                                             ? FontWeight.bold
@@ -318,18 +320,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
                             onTap: () async {
-                              if (episode.videoUrl.isNotEmpty) {
-                                _showAdOrNavigateToEpisode(
-                                    episode, episodeIndex);
-                              } else {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content:
-                                        Text("Videoya ait link bulunamadı"),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
-                              }
+                              _showAdOrNavigateToEpisode(episode, episodeIndex);
                             },
                             child: Padding(
                               padding: const EdgeInsets.all(8.0),
@@ -418,7 +409,7 @@ class _SeasonListPageState extends State<SeasonListPage> {
 
                                   // Oynat butonu
                                   const Icon(
-                                    Icons.play_circle_fill,
+                                    Icons.play_arrow_outlined,
                                     color: Colors.blue,
                                     size: 36,
                                   ),

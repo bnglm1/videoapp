@@ -87,7 +87,7 @@ class _SibnetPlayerPageState extends State<SibnetPlayerPage> {
 
             // Class'lara göre kaldır
             const elements = document.querySelectorAll(
-              '.vjs-logobrand, .ad-banner, .watermark, .popup-ad, .overlay-logo, .vjs-control-bar'
+              '.vjs-logobrand, .ad-banner, .watermark, .popup-ad, .overlay-logo'
             );
             elements.forEach(el => el.remove());
           }
@@ -106,7 +106,7 @@ class _SibnetPlayerPageState extends State<SibnetPlayerPage> {
       if (logo) logo.remove();
 
       const elements = document.querySelectorAll(
-        '.vjs-logobrand, .ad-banner, .watermark, .popup-ad, .overlay-logo, .vjs-control-bar'
+        '.vjs-logobrand, .ad-banner, .watermark, .popup-ad, .overlay-logo'
       );
       elements.forEach(el => el.remove());
 

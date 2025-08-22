@@ -6,6 +6,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:videoapp/screens/video_player_page.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:videoapp/screens/sign_in_page.dart';
 import 'package:video_player/video_player.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -59,11 +60,11 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // WebView kontrolü
   WebViewController? _webViewController;
   bool _isWebViewVideoPlaying = false;
-  bool _isWebViewVideoReady = false; // Add this new state variable
 
   // Video Sources - Yeni eklenen
   List<Map<String, dynamic>> _videoSources = [];
   int _selectedSourceIndex = 0;
+  final bool _isVideoSourceSelectorExpanded = false;
 
   // Reklamlar
   InterstitialAd? _interstitialAd;
@@ -95,51 +96,51 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // Yeni state değişkenleri ekleyin
   int _localViewCount = 0;
 
-  // WebView Video Playback Kontrol Metodları
-  Future<void> _playWebViewVideo() async {
-    if (_webViewController != null) {
-      await _webViewController!.runJavaScript('playVideo();');
-      setState(() {
-        _isWebViewVideoPlaying = true;
-      });
-    }
-  }
-
-  Future<void> _pauseWebViewVideo() async {
-    if (_webViewController != null) {
-      await _webViewController!.runJavaScript('pauseVideo();');
-      setState(() {
-        _isWebViewVideoPlaying = false;
-      });
-    }
-  }
-
-  Future<void> _playWebViewVideoWithDelay(Duration delay) async {
-    if (!_isWebViewVideoReady) {
-      print('WebView video henüz hazır değil, oynatma ertelendi.');
-      return; // If not ready, don't try to play yet.
-    }
-    print('WebView video ${delay.inSeconds} saniye sonra oynatılıyor...');
-    await Future.delayed(delay);
-    if (mounted) {
-      await _playWebViewVideo();
-    }
-  }
-
   Widget _buildWebViewPlayer() {
     return Stack(
       children: [
-        WebViewWidget(controller: _webViewController!),
-
-        // Sadece native'de gösterilecek butonlar → burada YOK
-
-        // Yalnızca "Tam Ekran" butonu göster (isteğe bağlı)
+        WebView(
+          onWebViewCreated: (controller) {
+            _webViewController = controller;
+            _loadWebView(_currentVideoUrl);
+          },
+          javascriptMode: JavascriptMode.unrestricted,
+          zoomEnabled: false,
+          allowsInlineMediaPlayback: true,
+          gestureNavigationEnabled: false,
+          initialUrl: 'about:blank',
+        ),
+        // Sağ üst köşede kontrol butonları
         Positioned(
           right: 8,
           top: 8,
-          child: _buildMiniControlButton(
-            icon: Icons.fullscreen,
-            onTap: _navigateToVideoPlayer,
+          child: Row(
+            children: [
+              // Oynat/Duraklat butonu
+              _buildMiniControlButton(
+                icon: _isWebViewVideoPlaying ? Icons.pause : Icons.play_arrow,
+                onTap: () {
+                  if (_isWebViewVideoPlaying) {
+                    // WebView içinde duraklatma yapamıyoruz ama simülasyon yapabiliriz
+                    setState(() {
+                      _isWebViewVideoPlaying = false;
+                    });
+                  } else {
+                    // Yeni HTML ile oynat
+                    _loadWebView(_currentVideoUrl);
+                    setState(() {
+                      _isWebViewVideoPlaying = true;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+              // Tam ekran butonu
+              _buildMiniControlButton(
+                icon: Icons.fullscreen,
+                onTap: _navigateToFullScreenPlayer,
+              ),
+            ],
           ),
         ),
       ],
@@ -147,7 +148,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   }
 
   void _loadWebView(String videoUrl) {
-    // Varsayılan HTML içeriği (genel embed)
     String htmlContent = '''
     <!DOCTYPE html>
     <html>
@@ -159,68 +159,20 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           position: absolute; 
           top: 0; left: 0; width: 100%; height: 100%; 
           border: none; 
+          pointer-events: none; /* Kullanıcı etkileşimi engellenir, sadece oynatma */
         }
       </style>
     </head>
     <body>
       <iframe 
-        id="videoPlayer" 
-        src="$videoUrl${videoUrl.contains('?') ? '&' : '?'}autoplay=1&controls=0&showinfo=0&rel=0" 
-        allow="autoplay; encrypted-media;" 
+        src="$videoUrl${videoUrl.contains('?') ? '&' : '?'}autoplay=1&mute=1&controls=0" 
+        allow="autoplay; encrypted-media;"
         allowfullscreen>
       </iframe>
-      <script>
-        var player;
-        function onYouTubeIframeAPIReady() {
-          if (typeof player !== 'undefined') return; // Zaten varsa tekrar oluşturma
-          player = new YT.Player('videoPlayer', {
-            events: {
-              'onReady': onPlayerReady,
-              'onStateChange': onPlayerStateChange
-            }
-          });
-        }
-
-        function onPlayerReady(event) {
-          // Video hazır
-        }
-
-        function onPlayerStateChange(event) {
-          // Durum değişiklikleri buraya
-        }
-
-        function playVideo() {
-          if (player && typeof player.playVideo === 'function') {
-            player.playVideo();
-          } else {
-            var video = document.querySelector('video');
-            if (video) video.play();
-          }
-        }
-
-        function pauseVideo() {
-          if (player && typeof player.pauseVideo === 'function') {
-            player.pauseVideo();
-          } else {
-            var video = document.querySelector('video');
-            if (video) video.pause();
-          }
-        }
-
-        function seekTo(seconds) {
-          if (player && typeof player.seekTo === 'function') {
-            player.seekTo(seconds, true);
-          } else {
-            var video = document.querySelector('video');
-            if (video) video.currentTime = seconds;
-          }
-        }
-      </script>
     </body>
     </html>
   ''';
 
-    // YouTube özel durumu
     if (videoUrl.contains('youtube.com') || videoUrl.contains('youtu.be')) {
       final videoId = _extractYouTubeId(videoUrl);
       if (videoId != null) {
@@ -231,62 +183,21 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
           <style>
             body, html { margin: 0; padding: 0; overflow: hidden; background: #000; }
-            iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+            iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; pointer-events: none; }
           </style>
         </head>
         <body>
           <iframe 
-            id="videoPlayer" 
-            src="https://www.youtube.com/embed/$videoId?enablejsapi=1&autoplay=1&controls=0&showinfo=0&rel=0" 
+            src="https://www.youtube.com/embed/$videoId?autoplay=1&mute=1&controls=0&showinfo=0&rel=0" 
             allow="autoplay; encrypted-media;" 
             allowfullscreen>
           </iframe>
-          <script src="https://www.youtube.com/iframe_api"></script>
-          <script>
-            var player;
-            function onYouTubeIframeAPIReady() {
-              if (typeof player !== 'undefined') return;
-              player = new YT.Player('videoPlayer', {
-                events: {
-                  'onReady': onPlayerReady,
-                  'onStateChange': onPlayerStateChange
-                }
-              });
-            }
-
-            function onPlayerReady(event) {
-              // Video hazır
-            }
-
-            function onPlayerStateChange(event) {
-              // Durum değişiklikleri
-            }
-
-            function playVideo() {
-              if (player && typeof player.playVideo === 'function') {
-                player.playVideo();
-              }
-            }
-
-            function pauseVideo() {
-              if (player && typeof player.pauseVideo === 'function') {
-                player.pauseVideo();
-              }
-            }
-
-            function seekTo(seconds) {
-              if (player && typeof player.seekTo === 'function') {
-                player.seekTo(seconds, true);
-              }
-            }
-          </script>
         </body>
         </html>
       ''';
       }
     }
 
-    // WebView'e yükle
     _webViewController?.loadHtmlString(htmlContent);
   }
 
@@ -296,7 +207,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
       caseSensitive: false,
     );
     final match = regExp.firstMatch(url);
-    return match?.group(1);
+    return match != null ? match.group(1) : null;
   }
 
   @override
@@ -305,39 +216,6 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     print('🎬 EpisodeDetailsPage başlatılıyor...');
     print('📍 EpisodeID: ${widget.episodeId}');
     print('📍 EpisodeTitle: ${widget.episodeTitle}');
-
-    _webViewController = WebViewController();
-    _webViewController!.setJavaScriptMode(JavaScriptMode.unrestricted);
-    _webViewController!.addJavaScriptChannel(
-      'flutter_inappwebview',
-      onMessageReceived: (JavaScriptMessage message) {
-        if (message.message == 'videoReady') {
-          setState(() {
-            _isWebViewVideoReady = true;
-          });
-          // Now that the WebView is ready, play the video with a delay
-          if (_shouldVideoUseWebView(_currentVideoUrl)) {
-            _playWebViewVideoWithDelay(const Duration(seconds: 2));
-          }
-        }
-      },
-    );
-    _webViewController!.setNavigationDelegate(
-      NavigationDelegate(
-        onProgress: (int progress) {
-          // Update loading bar.
-        },
-        onPageStarted: (String url) {},
-        onPageFinished: (String url) {},
-        onWebResourceError: (WebResourceError error) {},
-        onNavigationRequest: (NavigationRequest request) {
-          if (request.url.startsWith('https://www.youtube.com/')) {
-            return NavigationDecision.prevent;
-          }
-          return NavigationDecision.navigate;
-        },
-      ),
-    );
 
     _loadVideoSources(); // Video kaynaklarını yükle
     _loadInterstitialAd();
@@ -859,7 +737,11 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   // Video başlatma
   Future<void> _initializeVideo() async {
     try {
+      print("🚀 Video başlatılıyor: ${widget.videoUrl}");
+
       String videoUrl = _currentVideoUrl;
+      print('� Video URL kullanılıyor: $videoUrl');
+
       if (videoUrl.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -875,36 +757,31 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         return;
       }
 
+      // WebView gerekip gerekmediğini kontrol et
       if (_shouldVideoUseWebView(videoUrl)) {
-        // WebView kısmı dokunulmaz
-        _webViewController = WebViewController()
-          ..setJavaScriptMode(JavaScriptMode.unrestricted)
-          ..setBackgroundColor(Colors.black)
-          ..setNavigationDelegate(
-            NavigationDelegate(
-              onPageFinished: (String url) {
-                print('✅ WebView sayfası yüklendi: $url');
-              },
-            ),
-          );
+        // WebView ile oynat
         setState(() {
           _isVideoInitialized = true;
-          _isWebViewVideoPlaying = false;
+          _isWebViewVideoPlaying =
+              false; // Başlangıçta duraklatılmış gibi göster
         });
+        print("Video WebView ile oynatılacak");
+
+        // WebView'ı hazırla
         _loadWebView(videoUrl);
         return;
       }
 
-      // Native video: SharedPreferences'ten **en güncel** pozisyonu al
-      final prefs = await SharedPreferences.getInstance();
-      final savedPosition =
-          prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
-
+      print("▶️ Video controller başlatılıyor...");
       _videoPlayerController =
           VideoPlayerController.networkUrl(Uri.parse(videoUrl));
       await _videoPlayerController!.initialize();
 
-      // En güncel pozisyona git
+      // Kaydedilen pozisyonu yükle
+      final prefs = await SharedPreferences.getInstance();
+      final savedPosition =
+          prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
+
       if (savedPosition > 0) {
         await _videoPlayerController!
             .seekTo(Duration(milliseconds: savedPosition));
@@ -914,6 +791,9 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         _isVideoInitialized = true;
       });
 
+      print("✅ Video başarıyla başlatıldı!");
+
+      // Kontrolleri başlangıçta göster ve 3 saniye sonra gizle
       _showVideoControls = true;
       _hideVideoControlsTimer = Timer(const Duration(seconds: 3), () {
         if (mounted) {
@@ -923,15 +803,17 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         }
       });
 
-      // ✅ DÜZELTİLDİ: _videoController değil, _videoPlayerController
+      // Video durumu değişikliklerini dinle
       _videoPlayerController!.addListener(() {
         if (mounted) {
-          setState(() {});
-          _saveVideoPosition(); // Mini oynatıcıdaki pozisyonu kaydet
+          setState(() {
+            // UI güncellemesi için setState çağır
+          });
+          _saveVideoPosition();
         }
       });
 
-      print("✅ Video başarıyla başlatıldı");
+      print("Video başlatıldı");
     } catch (e) {
       print("❌ Video başlatma hatası: $e");
       if (mounted) {
@@ -957,17 +839,20 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
   // Kaydedilen video pozisyonunu yükle
   Future<void> _loadSavedVideoPosition() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedPosition =
-          prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
-      if (_videoPlayerController != null &&
-          _videoPlayerController!.value.isInitialized) {
-        await _videoPlayerController!
-            .seekTo(Duration(milliseconds: savedPosition));
+    if (_videoPlayerController != null &&
+        _videoPlayerController!.value.isInitialized) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final savedPosition =
+            prefs.getInt('video_position_${widget.episodeTitle}') ?? 0;
+
+        if (savedPosition > 0) {
+          final duration = Duration(milliseconds: savedPosition);
+          await _videoPlayerController!.seekTo(duration);
+        }
+      } catch (e) {
+        print('Video pozisyon yükleme hatası: $e');
       }
-    } catch (e) {
-      print('Pozisyon yükleme hatası: $e');
     }
   }
 
@@ -1003,37 +888,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   }
 
   // Tam ekran oynatıcıya git
-  void _navigateToFullScreenPlayer() async {
-    // Eğer WebView kullanılıyorsa, sesi kes
-    if (_shouldVideoUseWebView(_currentVideoUrl) &&
-        _webViewController != null) {
-      try {
-        // JavaScript ile duraklatmayı dene
-        await _webViewController!.runJavaScript('''
-        (function() {
-          if (typeof player !== 'undefined' && player && typeof player.pauseVideo === 'function') {
-            player.pauseVideo();
-          }
-          var video = document.querySelector('video');
-          if (video) video.pause();
-          var iframe = document.querySelector('iframe');
-          if (iframe) iframe.src = iframe.src;
-        })();
-      ''');
-      } catch (e) {
-        print('JS duraklatma hatası: $e');
-      }
-
-      // EN GÜVENLİ YÖNTEM: WebView içeriğini temizle
-      await _webViewController?.loadHtmlString('''
-      <!DOCTYPE html>
-      <html>
-      <body style="margin:0; padding:0; background:#000;"></body>
-      </html>
-    ''');
-    }
-
-    // Reklam veya doğrudan git
+  void _navigateToFullScreenPlayer() {
     _showAdOrNavigate();
   }
 
@@ -1304,48 +1159,20 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   }
 
   void _navigateToVideoPlayer() async {
-    // 1. Eğer WebView kullanılıyorsa, sesi kes
-    if (_shouldVideoUseWebView(_currentVideoUrl) &&
-        _webViewController != null) {
-      try {
-        await _webViewController!.runJavaScript('''
-        (function() {
-          if (typeof player !== 'undefined' && player && typeof player.pauseVideo === 'function') {
-            player.pauseVideo();
-          }
-          var video = document.querySelector('video');
-          if (video) video.pause();
-          var iframe = document.querySelector('iframe');
-          if (iframe) iframe.src = iframe.src;
-        })();
-      ''');
-      } catch (e) {
-        print('JS duraklatma hatası: $e');
-      }
-
-      await _webViewController?.loadHtmlString('''
-      <!DOCTYPE html>
-      <html>
-      <body style="margin:0; padding:0; background:#000;"></body>
-      </html>
-    ''');
+    // Mevcut video pozisyonunu kaydet
+    if (_videoPlayerController != null &&
+        _videoPlayerController!.value.isInitialized) {
+      await _saveVideoPosition();
+      // Mini oynatıcıyı duraklat
+      _videoPlayerController!.pause();
     }
 
-    // 2. Native video ise pozisyonu kaydet ve durdur
-    if (!_shouldVideoUseWebView(_currentVideoUrl)) {
-      if (_videoPlayerController != null &&
-          _videoPlayerController!.value.isInitialized) {
-        await _saveVideoPosition();
-        _videoPlayerController!.pause();
-      }
-    }
-
-    // 3. Tam ekran oynatıcıya git
+    // Seçili kaynağın URL'ini al
     final videoUrl = _currentVideoUrl;
-    final shouldUseWebView = _shouldVideoUseWebView(videoUrl);
-    final savedPosition = (await SharedPreferences.getInstance())
-            .getInt('video_position_${widget.episodeTitle}') ??
-        0;
+    print('🎬 Tam ekran oynatıcıya geçiliyor: $videoUrl');
+
+    // WebView kullanılıp kullanılmayacağını belirle
+    bool shouldUseWebView = _shouldVideoUseWebView(videoUrl);
 
     await Navigator.push(
       context,
@@ -1354,22 +1181,12 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           videoUrl: videoUrl,
           videoTitle: widget.episodeTitle,
           useWebView: shouldUseWebView,
-          initialPosition: Duration(milliseconds: savedPosition),
         ),
       ),
     );
 
-    // 4. <<<<< GELDİK BURAYA: GERİ DÖNDÜK >>>>>
-
-    // WebView ise: yeniden yükle
-    if (mounted && _shouldVideoUseWebView(_currentVideoUrl)) {
-      _loadWebView(_currentVideoUrl);
-    }
-
-    // Native ise: pozisyonu yükle (oynatma otomatik değil)
-    if (!_shouldVideoUseWebView(_currentVideoUrl)) {
-      await _loadSavedVideoPosition();
-    }
+    // Tam ekran oynatıcıdan döndükten sonra pozisyonu yükle ve mini oynatıcıyı güncelle
+    await _loadSavedVideoPosition();
   }
 
   // WebView kullanılması gerekip gerekmediğini belirle
@@ -1404,18 +1221,9 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
   // Paylaş
   void _shareVideo() async {
-    final String playStoreLink =
-        'https://play.google.com/store/apps/details?id=com.bintech.videoapp';
-    final String shareText = '''
-Beraber izleyelim mi kanka: ${widget.episodeTitle}
-
-Bu videoyu izlemek için uygulamayı indir:
-$playStoreLink
-  ''';
-
     try {
       await Share.share(
-        shareText.trim(),
+        'Bu harika videoyu izle: ${widget.episodeTitle}\n${widget.videoUrl}',
         subject: widget.episodeTitle,
       );
     } catch (e) {
@@ -1528,8 +1336,6 @@ $playStoreLink
           episodeIndex: widget.currentIndex! - 1,
           episodeList: widget.episodeList,
           currentIndex: widget.currentIndex! - 1,
-          episode:
-              previousEpisode, // ✅ EKLEME: Episode verilerini tam olarak aktar
         ),
       ),
     );
@@ -1555,7 +1361,6 @@ $playStoreLink
           episodeIndex: widget.currentIndex! + 1,
           episodeList: widget.episodeList,
           currentIndex: widget.currentIndex! + 1,
-          episode: nextEpisode, // ✅ EKLEME: Episode verilerini tam olarak aktar
         ),
       ),
     );
@@ -1621,7 +1426,7 @@ $playStoreLink
                         // Video Player Container
                         Container(
                           width: double.infinity,
-                          height: 280,
+                          height: 220,
                           decoration: BoxDecoration(
                             color: Colors.black,
                             gradient: LinearGradient(

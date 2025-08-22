@@ -13,25 +13,26 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStateMixin {
+class _ProfilePageState extends State<ProfilePage>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   User? _currentUser;
-  
+
   // Stream abonelikleri
   StreamSubscription<List<Map<String, dynamic>>>? _favoritesSubscription;
   StreamSubscription<QuerySnapshot>? _historySubscription;
-  
+
   // Kullanıcı bilgileri
   String _username = '';
   String _email = '';
   String? _photoUrl;
-  
+
   // Favoriler ve izleme geçmişi
   List<Map<String, dynamic>> _favorites = [];
   List<Map<String, dynamic>> _watchHistory = [];
-  
+
   // Yükleniyor durumları
   bool _isLoadingProfile = true;
   bool _isLoadingFavorites = true;
@@ -56,17 +57,18 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     if (_currentUser != null) {
       try {
         // Firestore'dan kullanıcı bilgilerini al
-        DocumentSnapshot userDoc = await _firestore
-            .collection('users')
-            .doc(_currentUser!.uid)
-            .get();
+        DocumentSnapshot userDoc =
+            await _firestore.collection('users').doc(_currentUser!.uid).get();
 
         if (!mounted) return;
 
         setState(() {
           if (userDoc.exists) {
-            Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-            _username = userData['username'] ?? _currentUser!.displayName ?? 'Kullanıcı';
+            Map<String, dynamic> userData =
+                userDoc.data() as Map<String, dynamic>;
+            _username = userData['username'] ??
+                _currentUser!.displayName ??
+                'Kullanıcı';
             _email = _currentUser!.email ?? '';
             _photoUrl = userData['photoUrl'] ?? _currentUser!.photoURL;
           } else {
@@ -111,21 +113,20 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
 
     // Favorileri stream olarak dinle
     _favoritesSubscription = _getFavoritesStream().listen((favorites) {
-          if (!mounted) return;
-          
+      if (!mounted) return;
 
-          setState(() {
-            _favorites = favorites;
-            _isLoadingFavorites = false;
-          });
-        }, onError: (e) {
-          print('Favoriler dinlenirken hata: $e');
-          if (mounted) {
-            setState(() {
-              _isLoadingFavorites = false;
-            });
-          }
+      setState(() {
+        _favorites = favorites;
+        _isLoadingFavorites = false;
+      });
+    }, onError: (e) {
+      print('Favoriler dinlenirken hata: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingFavorites = false;
         });
+      }
+    });
   }
 
   // İzleme geçmişi için Stream Dinleyici - Gerçek zamanlı güncellemeler için
@@ -149,31 +150,32 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
         .orderBy('lastWatched', descending: true)
         .snapshots()
         .listen((snapshot) {
-          if (!mounted) return;
-          
-          List<Map<String, dynamic>> history = [];
-          for (var doc in snapshot.docs) {
-            Map<String, dynamic> data = doc.data();
-            data['id'] = doc.id;
-            history.add(data);
-          }
+      if (!mounted) return;
 
-          setState(() {
-            _watchHistory = history;
-            _isLoadingHistory = false;
-          });
-        }, onError: (e) {
-          print('İzleme geçmişi dinlenirken hata: $e');
-          if (mounted) {
-            setState(() {
-              _isLoadingHistory = false;
-            });
-          }
+      List<Map<String, dynamic>> history = [];
+      for (var doc in snapshot.docs) {
+        Map<String, dynamic> data = doc.data();
+        data['id'] = doc.id;
+        history.add(data);
+      }
+
+      setState(() {
+        _watchHistory = history;
+        _isLoadingHistory = false;
+      });
+    }, onError: (e) {
+      print('İzleme geçmişi dinlenirken hata: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingHistory = false;
         });
+      }
+    });
   }
 
   // İstatistik kart widgeti
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+      String title, String value, IconData icon, Color color) {
     return Expanded(
       child: Column(
         children: [
@@ -254,7 +256,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
         child: const Center(child: CircularProgressIndicator()),
       );
     }
-    
+
     return Container(
       padding: const EdgeInsets.only(top: 20, bottom: 30),
       decoration: BoxDecoration(
@@ -286,13 +288,16 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
             child: CircleAvatar(
               radius: 50,
               backgroundColor: Colors.grey[800],
-              backgroundImage: _photoUrl != null ? NetworkImage(_photoUrl!) : null,
-              child: _photoUrl == null ? const Icon(Icons.person, size: 50, color: Colors.white70) : null,
+              backgroundImage:
+                  _photoUrl != null ? NetworkImage(_photoUrl!) : null,
+              child: _photoUrl == null
+                  ? const Icon(Icons.person, size: 50, color: Colors.white70)
+                  : null,
             ),
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // Kullanıcı Adı
           Text(
             _username,
@@ -309,7 +314,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
               ],
             ),
           ),
-          
+
           // Email
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
@@ -321,9 +326,9 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
               ),
             ),
           ),
-          
+
           const SizedBox(height: 20),
-          
+
           // İstatistikler
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -473,19 +478,22 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                     errorBuilder: (context, error, stackTrace) {
                       return Container(
                         color: Colors.grey[800],
-                        child: const Icon(Icons.video_library, color: Colors.white54),
+                        child: const Icon(Icons.video_library,
+                            color: Colors.white54),
                       );
                     },
                   )
                 : Container(
                     color: Colors.grey[800],
-                    child: const Icon(Icons.video_library, color: Colors.white54),
+                    child:
+                        const Icon(Icons.video_library, color: Colors.white54),
                   ),
           ),
         ),
         title: Text(
           favorite['title'] ?? 'Bilinmeyen Bölüm',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+          style:
+              const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
@@ -520,19 +528,24 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                     errorBuilder: (context, error, stackTrace) {
                       return Container(
                         color: Colors.grey[800],
-                        child: const Icon(Icons.video_library, color: Colors.white54),
+                        child: const Icon(Icons.video_library,
+                            color: Colors.white54),
                       );
                     },
                   )
                 : Container(
                     color: Colors.grey[800],
-                    child: const Icon(Icons.video_library, color: Colors.white54),
+                    child:
+                        const Icon(Icons.video_library, color: Colors.white54),
                   ),
           ),
         ),
         title: Text(
-          historyItem['videoTitle'] ?? historyItem['title'] ?? 'Bilinmeyen Bölüm',
-          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+          historyItem['videoTitle'] ??
+              historyItem['title'] ??
+              'Bilinmeyen Bölüm',
+          style:
+              const TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
@@ -571,103 +584,104 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     try {
       // Silme işlemi için daha modern bir onay diyaloğu göster
       bool confirmed = await showDialog(
-        context: context,
-        builder: (context) => Dialog(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.grey[900],
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 10,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // İkon ve başlık
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.redAccent,
-                    size: 40,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                
-                // Başlık
-                const Text(
-                  'Favorilerden Kaldır',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                
-                // İçerik yazısı
-                const Text(
-                  'Bu video favorilerinizden kaldırılacak. Bu işlem geri alınamaz.',
-                  style: TextStyle(color: Colors.white70),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                
-                // Butonlar - yatay düzen
-                Row(
-                  children: [
-                    // İptal butonu
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey[800],
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('İptal'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    
-                    // Kaldır butonu
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.redAccent,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        onPressed: () => Navigator.pop(context, true),
-                        child: const Text('Kaldır'),
-                      ),
+            context: context,
+            builder: (context) => Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[900],
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 10,
+                      spreadRadius: 1,
                     ),
                   ],
                 ),
-              ],
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // İkon ve başlık
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.redAccent,
+                        size: 40,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Başlık
+                    const Text(
+                      'Favorilerden Kaldır',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // İçerik yazısı
+                    const Text(
+                      'Bu video favorilerinizden kaldırılacak. Bu işlem geri alınamaz.',
+                      style: TextStyle(color: Colors.white70),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Butonlar - yatay düzen
+                    Row(
+                      children: [
+                        // İptal butonu
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.grey[800],
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('İptal'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+
+                        // Kaldır butonu
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Kaldır'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ),
-      ) ?? false;
+          ) ??
+          false;
 
       if (!confirmed) return;
 
@@ -694,7 +708,6 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     }
   }
 
-
   // İzleme geçmişi videosunu açma - tam parametreli versiyon
   void _openVideoFromHistory(Map<String, dynamic> historyItem) {
     Navigator.push(
@@ -702,7 +715,9 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
       MaterialPageRoute(
         builder: (context) => EpisodeDetailsPage(
           videoUrl: historyItem['videoUrl'] ?? '',
-          episodeTitle: historyItem['title'] ?? historyItem['videoTitle'] ?? 'Bilinmeyen Video',
+          episodeTitle: historyItem['title'] ??
+              historyItem['videoTitle'] ??
+              'Bilinmeyen Video',
           thumbnailUrl: historyItem['thumbnailUrl'],
           seriesId: historyItem['seriesId'],
           episodeId: historyItem['episodeId'],
@@ -717,14 +732,14 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
   Future<void> _deleteWatchHistoryItem(String documentId) async {
     try {
       await _firestore
-        .collection('users')
-        .doc(_currentUser!.uid)
-        .collection('watchHistory')
-        .doc(documentId)
-        .delete();
-      
+          .collection('users')
+          .doc(_currentUser!.uid)
+          .collection('watchHistory')
+          .doc(documentId)
+          .delete();
+
       // setState artık gerekli değil - stream otomatik güncelliyor
-      
+
       // CustomSnackbar ile bildirim
       CustomSnackbar.show(
         context: context,
@@ -742,24 +757,28 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
   // Tüm izleme geçmişini silme onayı
   Future<void> _confirmClearAllHistory() async {
     bool confirmed = await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Colors.grey[850],
-        title: const Text('Tüm Geçmişi Temizle', style: TextStyle(color: Colors.white)),
-        content: const Text('Tüm izleme geçmişiniz silinecek. Bu işlem geri alınamaz.',
-          style: TextStyle(color: Colors.white70)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('İptal'),
+          context: context,
+          builder: (context) => AlertDialog(
+            backgroundColor: Colors.grey[850],
+            title: const Text('Tüm Geçmişi Temizle',
+                style: TextStyle(color: Colors.white)),
+            content: const Text(
+                'Tüm izleme geçmişiniz silinecek. Bu işlem geri alınamaz.',
+                style: TextStyle(color: Colors.white70)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('İptal'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child:
+                    const Text('Temizle', style: TextStyle(color: Colors.red)),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Temizle', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    ) ?? false;
+        ) ??
+        false;
 
     if (confirmed) {
       await _clearAllHistory();
@@ -771,19 +790,19 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     try {
       final WriteBatch batch = _firestore.batch();
       final historyRef = _firestore
-        .collection('users')
-        .doc(_currentUser!.uid)
-        .collection('watchHistory');
-      
+          .collection('users')
+          .doc(_currentUser!.uid)
+          .collection('watchHistory');
+
       final snapshot = await historyRef.get();
       for (var doc in snapshot.docs) {
         batch.delete(doc.reference);
       }
-      
+
       await batch.commit();
-      
+
       // setState artık gerekli değil - stream otomatik güncelliyor
-      
+
       // CustomSnackbar ile bildirim
       CustomSnackbar.show(
         context: context,
@@ -803,7 +822,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
     final now = DateTime.now();
     final date = timestamp.toDate();
     final difference = now.difference(date);
-    
+
     if (difference.inMinutes < 1) {
       return 'Az önce';
     } else if (difference.inHours < 1) {
@@ -825,30 +844,34 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
   String _formatDateHeader(Timestamp timestamp) {
     final now = DateTime.now();
     final date = timestamp.toDate();
-    
-    if (date.year == now.year && date.month == now.month && date.day == now.day) {
+
+    if (date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day) {
       return 'Bugün';
-    } else if (date.year == now.year && date.month == now.month && date.day == now.day - 1) {
+    } else if (date.year == now.year &&
+        date.month == now.month &&
+        date.day == now.day - 1) {
       return 'Dün';
     } else {
       return '${date.day}.${date.month}.${date.year}';
     }
   }
-  
+
   String _formatTime(Timestamp timestamp) {
     final dateTime = timestamp.toDate();
     final hour = dateTime.hour.toString().padLeft(2, '0');
     final minute = dateTime.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
   }
-  
+
   bool _isSameDay(Timestamp timestamp1, Timestamp timestamp2) {
     final date1 = timestamp1.toDate();
     final date2 = timestamp2.toDate();
-    
-    return date1.year == date2.year && 
-           date1.month == date2.month && 
-           date1.day == date2.day;
+
+    return date1.year == date2.year &&
+        date1.month == date2.month &&
+        date1.day == date2.day;
   }
 
   // profile_page.dart dosyasında favoriler stream'ini güncelleyin
@@ -954,11 +977,12 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
 // Tab bar için SliverPersistentHeaderDelegate
 class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
   final TabBar tabBar;
-  
+
   _SliverTabBarDelegate(this.tabBar);
-  
+
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.grey[900],
@@ -974,13 +998,13 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
       child: tabBar,
     );
   }
-  
+
   @override
   double get maxExtent => tabBar.preferredSize.height;
-  
+
   @override
   double get minExtent => tabBar.preferredSize.height;
-  
+
   @override
   bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) {
     return false;

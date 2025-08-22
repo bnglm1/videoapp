@@ -23,14 +23,13 @@ class _CategoryScreenState extends State<CategoryScreen> {
   @override
   Widget build(BuildContext context) {
     // Serilerdeki kategorilerden benzersiz bir liste oluştur
-    final allCategories = widget.allSeries
-        .expand((series) => series.categories)
-        .toSet()
-        .toList();
+    final allCategories =
+        widget.allSeries.expand((series) => series.categories).toSet().toList();
 
     // Arama sorgusuna göre kategorileri filtrele
     final filteredCategories = allCategories
-        .where((category) => category.toLowerCase().contains(searchQuery.toLowerCase()))
+        .where((category) =>
+            category.toLowerCase().contains(searchQuery.toLowerCase()))
         .toList();
 
     return Scaffold(
@@ -38,10 +37,12 @@ class _CategoryScreenState extends State<CategoryScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text("Kategoriler", style: TextStyle(color: Colors.white, fontSize: 22)),
+        title: const Text("Kategoriler",
+            style: TextStyle(color: Colors.white, fontSize: 22)),
         actions: [
           IconButton(
-            icon: Icon(isGridView ? Icons.list : Icons.grid_view, color: Colors.white),
+            icon: Icon(isGridView ? Icons.list : Icons.grid_view,
+                color: Colors.white),
             onPressed: () {
               setState(() {
                 isGridView = !isGridView;
@@ -77,7 +78,8 @@ class _CategoryScreenState extends State<CategoryScreen> {
             Expanded(
               child: isGridView
                   ? GridView.builder(
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 2,
                         crossAxisSpacing: 16,
                         mainAxisSpacing: 16,
@@ -92,7 +94,8 @@ class _CategoryScreenState extends State<CategoryScreen> {
                       itemCount: filteredCategories.length,
                       itemBuilder: (context, index) {
                         return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8.0), // Kategoriler arasındaki boşluk
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 8.0), // Kategoriler arasındaki boşluk
                           child: _buildCategoryCard(filteredCategories[index]),
                         );
                       },
@@ -113,7 +116,8 @@ class _CategoryScreenState extends State<CategoryScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => FilteredSeriesScreen(category: category, filteredSeries: filteredSeries),
+            builder: (context) => FilteredSeriesScreen(
+                category: category, filteredSeries: filteredSeries),
           ),
         );
       },
@@ -130,7 +134,10 @@ class _CategoryScreenState extends State<CategoryScreen> {
             ),
           ],
           gradient: LinearGradient(
-            colors: [Colors.orangeAccent.withOpacity(0.8), Colors.blueAccent.withOpacity(0.9)],
+            colors: [
+              Colors.white.withOpacity(0.5),
+              Colors.blueAccent.withOpacity(0.9)
+            ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -138,7 +145,8 @@ class _CategoryScreenState extends State<CategoryScreen> {
               ? DecorationImage(
                   image: NetworkImage(widget.categoryImages[category]!),
                   fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.5), BlendMode.darken),
+                  colorFilter: ColorFilter.mode(
+                      Colors.black.withOpacity(0.5), BlendMode.darken),
                 )
               : null,
         ),
@@ -175,7 +183,8 @@ class FilteredSeriesScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: Text("Kategori: $category", style: const TextStyle(color: Colors.white)),
+        title: Text("Kategori: $category",
+            style: const TextStyle(color: Colors.white)),
       ),
       body: filteredSeries.isEmpty
           ? const Center(
@@ -183,7 +192,8 @@ class FilteredSeriesScreen extends StatelessWidget {
                   style: TextStyle(color: Colors.white, fontSize: 16)),
             )
           : Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: ListView.builder(
                 itemCount: filteredSeries.length,
                 itemBuilder: (context, index) {
@@ -198,14 +208,21 @@ class FilteredSeriesScreen extends StatelessWidget {
                         fit: BoxFit.cover,
                       ),
                     ),
-                    title: Text(series.title, style: const TextStyle(color: Colors.white, fontSize: 18)),
+                    title: Text(series.title,
+                        style:
+                            const TextStyle(color: Colors.white, fontSize: 18)),
                     subtitle: Text(series.description,
-                        style: const TextStyle(color: Colors.grey, fontSize: 14), maxLines: 2, overflow: TextOverflow.ellipsis),
-                    trailing: const Icon(Icons.arrow_forward, color: Colors.orangeAccent),
+                        style:
+                            const TextStyle(color: Colors.grey, fontSize: 14),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
+                    trailing: const Icon(Icons.arrow_forward,
+                        color: Colors.orangeAccent),
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => SeasonListPage(series)),
+                        MaterialPageRoute(
+                            builder: (context) => SeasonListPage(series)),
                       );
                     },
                   );

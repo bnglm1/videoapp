@@ -1,3 +1,5 @@
+import 'dart:ui'; // BackdropFilter için eklendi
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:videoapp/models/auth_service.dart';
 import 'package:videoapp/models/video_model.dart';
@@ -13,7 +15,6 @@ import 'package:videoapp/screens/sign_in_page.dart';
 import 'package:videoapp/screens/profile_page.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-// Gerekirse ekleyin
 
 class VideoListPage extends StatefulWidget {
   const VideoListPage({super.key});
@@ -25,13 +26,12 @@ class VideoListPage extends StatefulWidget {
 class _VideoListPageState extends State<VideoListPage>
     with SingleTickerProviderStateMixin {
   final GitHubService _githubService = GitHubService();
-  final FirebaseFirestore _firestore =
-      FirebaseFirestore.instance; // BU SATIRI EKLEYİN
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Series> seriesList = [];
   bool isLoading = true;
   Map<String, List<Series>> groupedSeriesList = {};
   int _selectedIndex = 0;
-  String _appVersion = 'v1.0.0'; // SINIF İÇİNE TAŞINDI
+  String _appVersion = 'v1.0.0';
 
   // Arama özelliği için yeni değişkenler
   bool _isSearching = false;
@@ -41,8 +41,15 @@ class _VideoListPageState extends State<VideoListPage>
 
   // Banner reklam için değişken
   late BannerAd _bannerAd;
-
   late AnimationController _animationController;
+
+  // Kullanıcı bilgileri için yeni değişkenler
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  User? _currentUser;
+  String _username = '';
+  String _email = '';
+  String? _photoUrl;
+  bool _isLoadingProfile = true;
 
   @override
   void initState() {
@@ -58,6 +65,59 @@ class _VideoListPageState extends State<VideoListPage>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
+    // Kullanıcı bilgilerini yükle
+    _currentUser = _auth.currentUser;
+    _loadUserData();
+  }
+
+  // Yeni metot - Kullanıcı bilgilerini yükle:
+  Future<void> _loadUserData() async {
+    setState(() {
+      _isLoadingProfile = true;
+    });
+
+    if (_currentUser != null) {
+      try {
+        // Firestore'dan kullanıcı bilgilerini al
+        DocumentSnapshot userDoc =
+            await _firestore.collection('users').doc(_currentUser!.uid).get();
+
+        if (!mounted) return;
+
+        setState(() {
+          if (userDoc.exists) {
+            Map<String, dynamic> userData =
+                userDoc.data() as Map<String, dynamic>;
+            _username = userData['username'] ??
+                _currentUser!.displayName ??
+                'Kullanıcı';
+            _email = _currentUser!.email ?? '';
+            _photoUrl = userData['photoUrl'] ?? _currentUser!.photoURL;
+          } else {
+            _username = _currentUser!.displayName ?? 'Kullanıcı';
+            _email = _currentUser!.email ?? '';
+            _photoUrl = _currentUser!.photoURL;
+          }
+          _isLoadingProfile = false;
+        });
+      } catch (e) {
+        print('Kullanıcı bilgileri yüklenirken hata: $e');
+        if (mounted) {
+          setState(() {
+            _username = _currentUser!.displayName ?? 'Kullanıcı';
+            _email = _currentUser!.email ?? '';
+            _photoUrl = _currentUser!.photoURL;
+            _isLoadingProfile = false;
+          });
+        }
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _isLoadingProfile = false;
+        });
+      }
+    }
   }
 
   @override
@@ -67,6 +127,116 @@ class _VideoListPageState extends State<VideoListPage>
     _searchController.dispose();
     _animationController.dispose();
     super.dispose();
+  }
+
+  Widget _buildAdvancedPlaytoonLogo() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Animated play button
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF2196F3), // Material Blue
+                  Color(0xFF21CBF3), // Lighter Blue
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.blue.withOpacity(0.4),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                  spreadRadius: 1,
+                ),
+                BoxShadow(
+                  color: Colors.white.withOpacity(0.1),
+                  blurRadius: 4,
+                  offset: const Offset(-2, -2),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                // Inner glow
+                Container(
+                  margin: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      center: const Alignment(-0.3, -0.3),
+                      colors: [
+                        Colors.white.withOpacity(0.3),
+                        Colors.transparent,
+                      ],
+                      stops: const [0.0, 0.8],
+                    ),
+                  ),
+                ),
+                // Play icon
+                const Center(
+                  child: Icon(
+                    Icons.play_arrow_outlined,
+                    color: Colors.white,
+                    size: 20,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black26,
+                        blurRadius: 2,
+                        offset: Offset(1, 1),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 6),
+
+          // Stylized "laytoon" text
+          ShaderMask(
+            shaderCallback: (Rect bounds) {
+              return const LinearGradient(
+                colors: [
+                  Colors.white,
+                  Color(0xFFBBDEFB),
+                  Colors.white,
+                ],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: [0.0, 0.5, 1.0],
+              ).createShader(bounds);
+            },
+            child: Text(
+              'playtoon',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 26.0,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // Arama değeri değiştiğinde çağrılır
@@ -137,12 +307,12 @@ class _VideoListPageState extends State<VideoListPage>
       Map<String, List<Series>> groupedSeries = {
         "Aksiyon & Macera": [],
         "Anime": [],
+        "Dövüş": [],
         "Spor": [],
         "Aile": [],
         "Komedi": [],
         "Dram": [],
         "Kült": [],
-        "Dövüş": [],
       };
 
       for (var series in allSeries) {
@@ -261,14 +431,7 @@ class _VideoListPageState extends State<VideoListPage>
                 cursorColor: Colors.white,
                 onChanged: _performSearch,
               )
-            : const Text(
-                'Playtoon',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24.0,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+            : _buildAdvancedPlaytoonLogo(),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -298,124 +461,319 @@ class _VideoListPageState extends State<VideoListPage>
           topRight: Radius.circular(30),
           bottomRight: Radius.circular(30),
         ),
-        child: SizedBox(
-          width: MediaQuery.of(context).size.width * 0.55,
-          child: Drawer(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.blueAccent.withOpacity(0.9),
-                    Colors.black.withOpacity(0.9)
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.55,
+            child: Drawer(
+              backgroundColor: Colors.transparent,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.black.withOpacity(0.8),
+                      Colors.grey[900]!.withOpacity(0.85),
+                      Colors.blue[900]!.withOpacity(0.7),
+                    ],
+                  ),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.2),
+                    width: 1,
+                  ),
                 ),
-              ),
-              child: SafeArea(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: ListView(
-                        padding: EdgeInsets.zero,
-                        children: [
-                          const DrawerHeader(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Colors.blue, Colors.grey],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: Text(
-                              'Menü',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          ListTile(
-                            leading: const Icon(Icons.privacy_tip,
-                                color: Colors.white),
-                            title: const Text('Gizlilik Politikası',
-                                style: TextStyle(color: Colors.white)),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) =>
-                                        const PrivacyPolicyPage()),
-                              );
-                            },
-                          ),
-                          ListTile(
-                            leading:
-                                const Icon(Icons.feedback, color: Colors.white),
-                            title: const Text('İstek Kutusu',
-                                style: TextStyle(color: Colors.white)),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) =>
-                                        const RequestBoxPage()),
-                              );
-                            },
-                          ),
-                          // Çıkış yapma butonu
-                          ListTile(
-                            leading:
-                                const Icon(Icons.logout, color: Colors.white),
-                            title: const Text('Çıkış Yap',
-                                style: TextStyle(color: Colors.white)),
-                            onTap: () async {
-                              await AuthService().signOut();
-                              if (mounted) {
-                                Navigator.of(context).pushAndRemoveUntil(
-                                  MaterialPageRoute(
-                                      builder: (_) => const SignInPage()),
-                                  (route) => false,
-                                );
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Version text at bottom
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        bottom: 32.0,
-                        left: 16.0,
-                        right: 16.0,
-                      ),
-                      child: ShaderMask(
-                        shaderCallback: (Rect bounds) {
-                          return LinearGradient(
-                            colors: [
-                              Colors.white.withOpacity(0.7),
-                              Colors.blue.withOpacity(0.5),
-                            ],
+                child: SafeArea(
+                  child: Column(
+                    children: [
+                      // Modern Header
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
-                          ).createShader(bounds);
-                        },
-                        child: Text(
-                          _appVersion,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w400,
-                            letterSpacing: 1.2,
+                            colors: [
+                              Colors.blue.withOpacity(0.3),
+                              Colors.purple.withOpacity(0.2),
+                            ],
                           ),
-                          textAlign: TextAlign.center,
+                          borderRadius: const BorderRadius.only(
+                            bottomLeft: Radius.circular(25),
+                            bottomRight: Radius.circular(25),
+                          ),
+                          border: Border(
+                            bottom: BorderSide(
+                              color: Colors.white.withOpacity(0.1),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            // Profil resmi - play icon yerine kullanıcı resmi
+                            _isLoadingProfile
+                                ? Container(
+                                    width: 80,
+                                    height: 80,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.grey[800],
+                                    ),
+                                    child: const Center(
+                                      child: CircularProgressIndicator(
+                                        color: Colors.blue,
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  )
+                                : Container(
+                                    width: 80,
+                                    height: 80,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.blue.withOpacity(0.8),
+                                          Colors.white.withOpacity(0.8),
+                                        ],
+                                      ),
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.3),
+                                        width: 2,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.blue.withOpacity(0.3),
+                                          blurRadius: 15,
+                                          offset: const Offset(0, 5),
+                                        ),
+                                      ],
+                                    ),
+                                    child: CircleAvatar(
+                                      radius: 38,
+                                      backgroundColor: Colors.grey[800],
+                                      backgroundImage: _photoUrl != null
+                                          ? NetworkImage(_photoUrl!)
+                                          : null,
+                                      child: _photoUrl == null
+                                          ? const Icon(
+                                              Icons.person,
+                                              color: Colors.white,
+                                              size: 40,
+                                            )
+                                          : null,
+                                    ),
+                                  ),
+                            const SizedBox(height: 16),
+
+                            // Kullanıcı adı
+                            _isLoadingProfile
+                                ? Container(
+                                    width: 120,
+                                    height: 20,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[800],
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  )
+                                : ShaderMask(
+                                    shaderCallback: (Rect bounds) {
+                                      return LinearGradient(
+                                        colors: [
+                                          Colors.white,
+                                          Colors.blue[200]!,
+                                        ],
+                                      ).createShader(bounds);
+                                    },
+                                    child: Text(
+                                      _username,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0.5,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+
+                            const SizedBox(height: 8),
+
+                            // Email - opsiyonel
+                            if (_email.isNotEmpty && !_isLoadingProfile)
+                              Text(
+                                _email,
+                                style: TextStyle(
+                                  color: Colors.grey[400],
+                                  fontSize: 14,
+                                  letterSpacing: 0.3,
+                                ),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                          ],
                         ),
                       ),
-                    ),
-                  ],
+
+                      const SizedBox(height: 20),
+
+                      // Menu Items
+                      Expanded(
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          children: [
+                            _buildModernDrawerItem(
+                              icon: Icons.privacy_tip_outlined,
+                              title: 'Gizlilik Politikası',
+                              gradient: [Colors.green, Colors.teal],
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const PrivacyPolicyPage(),
+                                  ),
+                                );
+                              },
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            _buildModernDrawerItem(
+                              icon: Icons.feedback_outlined,
+                              title: 'İstek Kutusu',
+                              gradient: [Colors.orange, Colors.red],
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const RequestBoxPage(),
+                                  ),
+                                );
+                              },
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            // Separator
+                            Container(
+                              height: 1,
+                              margin:
+                                  const EdgeInsets.symmetric(horizontal: 20),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.white.withOpacity(0.3),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            _buildModernDrawerItem(
+                              icon: Icons.logout,
+                              title: 'Çıkış Yap',
+                              gradient: [Colors.red, Colors.red[800]!],
+                              onTap: () async {
+                                await AuthService().signOut();
+                                if (mounted) {
+                                  Navigator.of(context).pushAndRemoveUntil(
+                                    MaterialPageRoute(
+                                      builder: (_) => const SignInPage(),
+                                    ),
+                                    (route) => false,
+                                  );
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Version at bottom
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          children: [
+                            // Decorative line
+                            Container(
+                              width: 60,
+                              height: 3,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(2),
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.blue.withOpacity(0.5),
+                                    Colors.purple.withOpacity(0.5),
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            // Version info
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.2),
+                                  width: 1,
+                                ),
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.white.withOpacity(0.1),
+                                    Colors.white.withOpacity(0.05),
+                                  ],
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.info_outline,
+                                    color: Colors.white.withOpacity(0.7),
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  ShaderMask(
+                                    shaderCallback: (Rect bounds) {
+                                      return LinearGradient(
+                                        colors: [
+                                          Colors.white.withOpacity(0.9),
+                                          Colors.blue.withOpacity(0.7),
+                                        ],
+                                      ).createShader(bounds);
+                                    },
+                                    child: Text(
+                                      _appVersion,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -462,8 +820,7 @@ class _VideoListPageState extends State<VideoListPage>
             Expanded(
               child: isLoading
                   ? const Center(
-                      child: CircularProgressIndicator(
-                          color: Colors.blue)) // Renk değiştirildi
+                      child: CircularProgressIndicator(color: Colors.blue))
                   : IndexedStack(
                       index: _selectedIndex,
                       children: _screens(),
@@ -519,6 +876,87 @@ class _VideoListPageState extends State<VideoListPage>
     );
   }
 
+  // Modern Drawer Item Widget'ı
+  Widget _buildModernDrawerItem({
+    required IconData icon,
+    required String title,
+    required List<Color> gradient,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withOpacity(0.1),
+            Colors.white.withOpacity(0.05),
+          ],
+        ),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.1),
+          width: 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                // Icon container
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: LinearGradient(colors: gradient),
+                    boxShadow: [
+                      BoxShadow(
+                        color: gradient[0].withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    icon,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+
+                const SizedBox(width: 16),
+
+                // Title
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ),
+
+                // Arrow icon
+                Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.white.withOpacity(0.5),
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   // Arama sonuçlarını göster
   Widget _buildSearchResults() {
     return Container(
@@ -553,8 +991,7 @@ class _VideoListPageState extends State<VideoListPage>
                   placeholder: (context, url) => Container(
                     color: Colors.grey[800],
                     child: const Center(
-                        child: CircularProgressIndicator(
-                            color: Colors.blue)), // Renk eklendi
+                        child: CircularProgressIndicator(color: Colors.blue)),
                   ),
                   errorWidget: (context, url, error) => const Icon(Icons.error),
                 ),
@@ -607,133 +1044,324 @@ class _VideoListPageState extends State<VideoListPage>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildFeaturedContent(),
-          const SizedBox(height: 16.0),
-          // Popüler Bölümler
+          const SizedBox(height: 20.0),
+
+          // Popüler Bölümler (Madalya sistemi ile)
           _buildPopularEpisodesSection(),
 
-          // YENİ: Sadece bu 7 kategori sırayla gösteriliyor
+          // Kategoriler - Modern tasarım ile
           ...[
             "Aksiyon & Macera",
             "Anime",
-            "Spor",
+            "Dövüş",
             "Aile",
+            "Spor",
             "Komedi",
             "Dram",
             "Kült",
-            "Dövüş"
           ].map((category) {
             final items = groupedSeriesList[category] ?? [];
             if (items.isEmpty) return const SizedBox.shrink();
             return Column(
               children: [
-                _buildSectionTitle(category),
-                _buildHorizontalList(items),
+                _buildModernSectionTitle(category),
+                _buildModernHorizontalList(items, category),
               ],
             );
           }).toList(),
 
-          const SizedBox(height: 20.0),
+          const SizedBox(height: 30.0),
         ],
       ),
     );
   }
 
   Widget _buildFeaturedContent() {
-    return CarouselSlider.builder(
-      itemCount: seriesList.length,
-      itemBuilder: (context, index, realIndex) {
-        final series = seriesList[index];
-        return Stack(
-          children: [
-            // Arka plana bulanık görsel ekleyerek sinematik bir görünüm sağlıyoruz.
-            Positioned.fill(
-              child: Image.network(
-                series.cover,
-                fit: BoxFit.cover,
-              ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Başlık
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Colors.red, Colors.orange],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.local_fire_department,
+                      color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Öne Çıkanlar',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
-            Positioned.fill(
-              child: Container(
+          ),
+
+          // Carousel
+          CarouselSlider.builder(
+            itemCount: seriesList.length,
+            itemBuilder: (context, index, realIndex) {
+              final series = seriesList[index];
+              return Container(
+                margin: const EdgeInsets.symmetric(horizontal: 8),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withOpacity(0.5),
-                      Colors.black.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: Stack(
+                    children: [
+                      // Arka plan görseli
+                      Positioned.fill(
+                        child: Image.network(
+                          series.cover,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+
+                      // Gradient overlay
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withOpacity(0.3),
+                                Colors.black.withOpacity(0.8),
+                                Colors.black.withOpacity(0.95),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // İçerik
+                      Positioned(
+                        bottom: 30,
+                        left: 20,
+                        right: 20,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Kategoriler
+                            Wrap(
+                              spacing: 6,
+                              children: series.type
+                                  .take(2)
+                                  .map((type) => Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orange.withOpacity(0.8),
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                        child: Text(
+                                          type,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ))
+                                  .toList(),
+                            ),
+                            const SizedBox(height: 8),
+
+                            // Başlık
+                            Text(
+                              series.title,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                shadows: [
+                                  Shadow(
+                                    color: Colors.black,
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 8),
+
+                            // Açıklama
+                            Text(
+                              series.description,
+                              style: TextStyle(
+                                color: Colors.grey[300],
+                                fontSize: 14,
+                                height: 1.3,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // Buton
+                            Container(
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Colors.blue, Colors.blueAccent],
+                                ),
+                                borderRadius: BorderRadius.circular(25),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.blue.withOpacity(0.4),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 24, vertical: 12),
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          SeasonListPage(series),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.play_arrow_outlined,
+                                    color: Colors.white, size: 20),
+                                label: const Text(
+                                  "İzle",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
-              ),
+              );
+            },
+            options: CarouselOptions(
+              height: 280,
+              autoPlay: true,
+              enlargeCenterPage: true,
+              autoPlayInterval: const Duration(seconds: 5),
+              viewportFraction: 0.85,
             ),
-            // Öne çıkan içerik
-            Positioned(
-              bottom: 40,
-              left: 20,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    series.title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                    ),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => SeasonListPage(series),
-                        ),
-                      );
-                    },
-                    child: const Text(
-                      "İzlemeye Başla",
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
-      options: CarouselOptions(
-        height: 250,
-        autoPlay: true,
-        enlargeCenterPage: true,
-        autoPlayInterval: const Duration(seconds: 4),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 24.0,
-          fontWeight: FontWeight.bold,
-        ),
+  Widget _buildModernSectionTitle(String title) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: _getCategoryGradient(title),
+              ),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: _getCategoryGradient(title)[0].withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Icon(
+              _getCategoryIcon(title),
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.grey[800]?.withOpacity(0.8),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                color: _getCategoryGradient(title)[0].withOpacity(0.5),
+                width: 1,
+              ),
+            ),
+            child: Text(
+              '${groupedSeriesList[title]?.length ?? 0}',
+              style: TextStyle(
+                color: _getCategoryGradient(title)[0],
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildHorizontalList(List<Series> items) {
+  Widget _buildModernHorizontalList(List<Series> items, String category) {
     return SizedBox(
-      height: 180.0,
+      height: 220.0,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
         itemCount: items.length,
         itemBuilder: (context, index) {
           final item = items[index];
@@ -747,39 +1375,143 @@ class _VideoListPageState extends State<VideoListPage>
               );
             },
             child: Container(
-              width: 120.0,
-              margin: const EdgeInsets.symmetric(horizontal: 8.0),
+              width: 140.0,
+              margin: const EdgeInsets.only(right: 16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
+                  // Görsel kısmı - Sabit yükseklik
+                  Container(
+                    height: 170.0, // Sabit yükseklik
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16.0),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _getCategoryGradient(category)[0]
+                              .withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(16.0),
-                      child: CachedNetworkImage(
-                        imageUrl: item.cover,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        placeholder: (context, url) => Container(
-                          color: Colors.grey[800],
-                          child: const Center(
-                              child: CircularProgressIndicator(
-                                  color: Colors.blue)), // Renk eklendi
-                        ),
-                        errorWidget: (context, url, error) =>
-                            const Icon(Icons.error),
+                      child: Stack(
+                        children: [
+                          // Ana görsel
+                          CachedNetworkImage(
+                            imageUrl: item.cover,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
+                            placeholder: (context, url) => Container(
+                              color: Colors.grey[800],
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  color: _getCategoryGradient(category)[0],
+                                ),
+                              ),
+                            ),
+                            errorWidget: (context, url, error) => Container(
+                              color: Colors.grey[800],
+                              child: Icon(
+                                Icons.error,
+                                color: _getCategoryGradient(category)[0],
+                              ),
+                            ),
+                          ),
+
+                          // Gradient overlay
+                          Positioned.fill(
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withOpacity(0.7),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // Kategori badge
+                          Positioned(
+                            top: 8,
+                            left: 8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: _getCategoryGradient(category),
+                                ),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.3),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Text(
+                                category,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // Play butonu
+                          Positioned(
+                            bottom: 8,
+                            right: 8,
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.8),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: _getCategoryGradient(category)[0],
+                                  width: 2,
+                                ),
+                              ),
+                              child: Icon(
+                                Icons.play_arrow_outlined,
+                                color: _getCategoryGradient(category)[0],
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8.0),
-                  Text(
-                    item.title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16.0,
-                      fontWeight: FontWeight.bold,
+
+                  // Başlık - Sabit yükseklik
+                  const SizedBox(height: 12.0),
+                  SizedBox(
+                    height: 34.0, // Sabit yükseklik (2 satır için)
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        item.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14.0,
+                          fontWeight: FontWeight.w600,
+                          height: 1.2,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -790,6 +1522,53 @@ class _VideoListPageState extends State<VideoListPage>
     );
   }
 
+  List<Color> _getCategoryGradient(String category) {
+    switch (category) {
+      case "Aksiyon & Macera":
+        return [Colors.red, Colors.orange];
+      case "Anime":
+        return [Colors.pink, Colors.purple];
+      case "Dövüş":
+        return [Colors.red[800]!, Colors.red[600]!];
+      case "Spor":
+        return [Colors.green, Colors.teal];
+      case "Aile":
+        return [Colors.blue, Colors.lightBlue];
+      case "Komedi":
+        return [Colors.yellow, Colors.orange];
+      case "Dram":
+        return [Colors.indigo, Colors.blue];
+      case "Kült":
+        return [Colors.purple, Colors.deepPurple];
+      default:
+        return [Colors.grey, Colors.blueGrey];
+    }
+  }
+
+// Kategori ikonlarını belirle
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case "Aksiyon & Macera":
+        return Icons.flash_on;
+      case "Anime":
+        return Icons.auto_awesome;
+      case "Dövüş":
+        return Icons.sports_mma;
+      case "Spor":
+        return Icons.sports_soccer;
+      case "Aile":
+        return Icons.family_restroom;
+      case "Komedi":
+        return Icons.sentiment_very_satisfied;
+      case "Dram":
+        return Icons.theater_comedy;
+      case "Kült":
+        return Icons.star;
+      default:
+        return Icons.movie;
+    }
+  }
+
   // home_page.dart dosyasına popüler bölümler bölümü ekleyin
   Widget _buildPopularEpisodesSection() {
     return Container(
@@ -797,20 +1576,43 @@ class _VideoListPageState extends State<VideoListPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'Popüler Bölümler',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Colors.amber, Colors.orange],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.amber.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.trending_up,
+                      color: Colors.white, size: 20),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Popüler Bölümler',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),
           SizedBox(
-            height: 240, // Yüksekliği daha da artırdık
+            height: 260,
             child: StreamBuilder<QuerySnapshot>(
               stream: _firestore
                   .collection('videos')
@@ -820,7 +1622,7 @@ class _VideoListPageState extends State<VideoListPage>
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
-                      child: CircularProgressIndicator(color: Colors.blue));
+                      child: CircularProgressIndicator(color: Colors.amber));
                 }
 
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -843,111 +1645,166 @@ class _VideoListPageState extends State<VideoListPage>
                     final views = (data['views'] as num?)?.toInt() ?? 0;
 
                     return Container(
-                      width: 190, // Genişliği daha da artırdık
+                      width: 200,
                       margin: const EdgeInsets.only(right: 12),
                       child: Card(
                         color: Colors.grey[850],
-                        elevation: 4,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Sıralama numarası ve görsel alanı
-                              Stack(
-                                children: [
-                                  Container(
-                                    height: 100, // Yüksekliği artırdık
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey[800],
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Center(
-                                      child: Icon(
-                                        Icons.video_library,
-                                        color: Colors.white54,
-                                        size: 32,
-                                      ),
-                                    ),
-                                  ),
-                                  // Sıralama numarası sağ üstte
-                                  Positioned(
-                                    top: 8,
-                                    right: 8,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 4),
+                        elevation: 8,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(
+                            color: _getMedalColor(index + 1).withOpacity(0.5),
+                            width: 2,
+                          ),
+                        ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.grey[850]!,
+                                Colors.grey[900]!,
+                              ],
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Madalya ve görsel alanı
+                                Stack(
+                                  children: [
+                                    Container(
+                                      height: 110,
                                       decoration: BoxDecoration(
-                                        color: _getRankColor(index + 1),
+                                        color: Colors.grey[800],
                                         borderRadius: BorderRadius.circular(12),
                                         boxShadow: [
                                           BoxShadow(
                                             color:
                                                 Colors.black.withOpacity(0.3),
-                                            blurRadius: 4,
-                                            offset: const Offset(0, 2),
+                                            blurRadius: 6,
+                                            offset: const Offset(0, 3),
                                           ),
                                         ],
                                       ),
+                                      child: Center(
+                                        child: Container(
+                                          padding: const EdgeInsets.all(16),
+                                          decoration: BoxDecoration(
+                                            color: _getMedalColor(index + 1)
+                                                .withOpacity(0.2),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            Icons.video_library,
+                                            color: _getMedalColor(index + 1),
+                                            size: 36,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+
+                                    // Madalya - Sol üst köşede
+                                    Positioned(
+                                      top: -5,
+                                      left: -5,
+                                      child: _buildMedal(index + 1),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+
+                                // Bölüm başlığı
+                                Tooltip(
+                                  message: title,
+                                  textStyle: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black87,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: SizedBox(
+                                    height: 65,
+                                    child: Text(
+                                      title,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.3,
+                                        shadows: [
+                                          Shadow(
+                                            color: _getMedalColor(index + 1)
+                                                .withOpacity(0.3),
+                                            blurRadius: 4,
+                                            offset: const Offset(1, 1),
+                                          ),
+                                        ],
+                                      ),
+                                      maxLines: 4,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+
+                                const SizedBox(height: 8),
+
+                                // Sıralama ve izlenme sayısı
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    // Sıralama
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: _getMedalColor(index + 1)
+                                            .withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: _getMedalColor(index + 1)
+                                              .withOpacity(0.5),
+                                          width: 1,
+                                        ),
+                                      ),
                                       child: Text(
-                                        '#${index + 1}',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
+                                        _getRankText(index + 1),
+                                        style: TextStyle(
+                                          color: _getMedalColor(index + 1),
+                                          fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
 
-                              // Bölüm başlığı - Tooltip ile tam metin gösterimi
-                              Tooltip(
-                                message: title, // Tam metni tooltip'te göster
-                                textStyle: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.black87,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: SizedBox(
-                                  height: 65, // Başlık alanını büyüttük
-                                  child: Text(
-                                    title,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15, // Font boyutunu artırdık
-                                      fontWeight:
-                                          FontWeight.w600, // Daha kalın yaptık
-                                      height: 1.3, // Satır aralığını artırdık
+                                    // İzlenme sayısı
+                                    Row(
+                                      children: [
+                                        Icon(Icons.visibility,
+                                            size: 12,
+                                            color: _getMedalColor(index + 1)),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _formatViewCount(views),
+                                          style: TextStyle(
+                                            color: _getMedalColor(index + 1),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    maxLines: 4, // 4 satıra çıkardık
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                                  ],
                                 ),
-                              ),
-
-                              const SizedBox(height: 8),
-                              // Sadece izlenme sayısı
-                              Row(
-                                children: [
-                                  const Icon(Icons.visibility,
-                                      size: 12, color: Colors.blue),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    _formatViewCount(views),
-                                    style: const TextStyle(
-                                      color: Colors.grey,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -960,6 +1817,134 @@ class _VideoListPageState extends State<VideoListPage>
         ],
       ),
     );
+  }
+
+// Madalya widget'ı oluştur
+  Widget _buildMedal(int rank) {
+    return Container(
+      width: 50,
+      height: 50,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(
+          colors: [
+            _getMedalColor(rank),
+            _getMedalColor(rank).withOpacity(0.7),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _getMedalColor(rank).withOpacity(0.6),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Dış çember
+          Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: _getMedalColor(rank).withOpacity(0.8),
+                width: 2,
+              ),
+            ),
+          ),
+
+          // İç içerik
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _getMedalIcon(rank),
+                  color: Colors.white,
+                  size: 18,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withOpacity(0.5),
+                      blurRadius: 2,
+                      offset: const Offset(1, 1),
+                    ),
+                  ],
+                ),
+                Text(
+                  '$rank',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black,
+                        blurRadius: 2,
+                        offset: Offset(1, 1),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+// Madalya rengini belirle
+  Color _getMedalColor(int rank) {
+    switch (rank) {
+      case 1:
+        return const Color(0xFFFFD700); // Altın
+      case 2:
+        return const Color(0xFFC0C0C0); // Gümüş
+      case 3:
+        return const Color(0xFFCD7F32); // Bronz
+      case 4:
+        return Colors.blue[600]!; // Mavi
+      case 5:
+        return Colors.green[600]!; // Yeşil
+      default:
+        return Colors.grey[600]!;
+    }
+  }
+
+// Madalya ikonunu belirle
+  IconData _getMedalIcon(int rank) {
+    switch (rank) {
+      case 1:
+        return Icons.workspace_premium; // Altın madalya
+      case 2:
+        return Icons.workspace_premium; // Gümüş madalya
+      case 3:
+        return Icons.workspace_premium; // Bronz madalya
+      case 4:
+        return Icons.star; // Yıldız
+      case 5:
+        return Icons.star; // Yıldız
+      default:
+        return Icons.circle;
+    }
+  }
+
+// Sıralama metnini belirle
+  String _getRankText(int rank) {
+    switch (rank) {
+      case 1:
+        return '1. ALTIN';
+      case 2:
+        return '2. GÜMÜŞ';
+      case 3:
+        return '3. BRONZ';
+      case 4:
+        return '4. SIRA';
+      case 5:
+        return '5. SIRA';
+      default:
+        return '$rank. SIRA';
+    }
   }
 
   // View count'ı okunabilir formata çevirir
