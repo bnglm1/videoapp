@@ -1,6 +1,9 @@
 import 'dart:async'; // Stream için gerekli
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:videoapp/screens/episode_detail_screen.dart';
 import 'package:videoapp/utils/custom_snackbar.dart'; // Özel Snackbar için import
@@ -38,6 +41,598 @@ class _ProfilePageState extends State<ProfilePage>
   bool _isLoadingFavorites = true;
   bool _isLoadingHistory = true;
 
+  // Profil resmi için yeni değişkenler
+  final ImagePicker _picker = ImagePicker();
+  final FirebaseStorage _storage = FirebaseStorage.instance;
+  bool _isUploadingImage = false;
+
+  // Profil resmi seçme metodu:
+  Future<void> _pickAndUploadImage() async {
+    try {
+      print("Resim seçme işlemi başlıyor...");
+
+      final ImageSource? source = await _showImageSourceDialog();
+      if (source == null) {
+        print("Kullanıcı resim kaynağını seçmedi");
+        return;
+      }
+
+      print("Resim kaynağı seçildi: ${source.toString()}");
+
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        maxWidth: 512,
+        maxHeight: 512,
+        imageQuality: 80,
+      );
+
+      if (image == null) {
+        print("Resim seçilmedi veya iptal edildi");
+        return;
+      }
+
+      print("Resim seçildi: ${image.path}");
+      print("Dosya boyutu: ${await File(image.path).length()} bytes");
+
+      setState(() {
+        _isUploadingImage = true;
+      });
+
+      final File imageFile = File(image.path);
+      if (!await imageFile.exists()) {
+        throw Exception("Seçilen dosya bulunamadı");
+      }
+
+      print("Firebase Storage'a yükleme başlıyor...");
+
+      final String fileName =
+          'profile_images/${_currentUser!.uid}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final Reference ref = _storage.ref().child(fileName);
+
+      final SettableMetadata metadata = SettableMetadata(
+        contentType: 'image/jpeg',
+      );
+
+      final UploadTask uploadTask = ref.putFile(imageFile, metadata);
+
+      uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+        final progress = snapshot.bytesTransferred / snapshot.totalBytes;
+        print(
+            'Upload progress: ${(progress * 100).toStringAsFixed(2)}% - ${snapshot.bytesTransferred}/${snapshot.totalBytes} bytes');
+      });
+
+      print("Upload task oluşturuldu, bekleniyor...");
+      final TaskSnapshot snapshot = await uploadTask;
+      print("Upload tamamlandı, download URL alınıyor...");
+
+      final String downloadURL = await snapshot.ref.getDownloadURL();
+      print("Download URL alındı: $downloadURL");
+
+      // DÜZELTME: Firestore'da kullanıcı profilini güncelle - merge kullan
+      print("Firestore güncelleniyor...");
+      await _firestore.collection('users').doc(_currentUser!.uid).set({
+        'username': _username,
+        'email': _email,
+        'photoUrl': downloadURL,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print("Firestore güncellendi");
+
+      // Firebase Auth profilini güncelleme
+      try {
+        print("Firebase Auth profili güncelleniyor...");
+        await _currentUser!.updatePhotoURL(downloadURL);
+        print("Firebase Auth profili güncellendi");
+
+        await _currentUser!.reload();
+        _currentUser = FirebaseAuth.instance.currentUser;
+      } catch (authError) {
+        print(
+            "Firebase Auth profil güncelleme hatası (önemli değil): $authError");
+      }
+
+      if (mounted) {
+        setState(() {
+          _photoUrl = downloadURL;
+          _isUploadingImage = false;
+        });
+
+        CustomSnackbar.show(
+          context: context,
+          message: 'Profil resmi başarıyla güncellendi',
+          type: SnackbarType.success,
+        );
+      }
+
+      print("Profil resmi güncelleme işlemi tamamlandı");
+    } catch (e, stackTrace) {
+      print('Resim yükleme hatası: $e');
+      print('Stack trace: $stackTrace');
+
+      if (mounted) {
+        setState(() {
+          _isUploadingImage = false;
+        });
+
+        String errorMessage;
+        if (e.toString().contains('network')) {
+          errorMessage = 'İnternet bağlantınızı kontrol edin';
+        } else if (e.toString().contains('permission')) {
+          errorMessage = 'Uygulama izinlerini kontrol edin';
+        } else if (e.toString().contains('storage')) {
+          errorMessage = 'Dosya yükleme hatası. Tekrar deneyin';
+        } else {
+          errorMessage = 'Resim yüklenirken bir hata oluştu';
+        }
+
+        CustomSnackbar.show(
+          context: context,
+          message: errorMessage,
+          type: SnackbarType.error,
+        );
+      }
+    }
+  }
+
+  // Resim kaynağı seçme diyalogu:
+  Future<ImageSource?> _showImageSourceDialog() async {
+    return showDialog<ImageSource>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.grey[900],
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 10,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Başlık
+              const Text(
+                'Profil Resmi Seç',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Kamera seçeneği
+              _buildImageSourceOption(
+                icon: Icons.camera_alt,
+                title: 'Kamera',
+                subtitle: 'Yeni fotoğraf çek',
+                gradient: [Colors.blue, Colors.blueAccent],
+                onTap: () => Navigator.pop(context, ImageSource.camera),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Galeri seçeneği
+              _buildImageSourceOption(
+                icon: Icons.photo_library,
+                title: 'Galeri',
+                subtitle: 'Mevcut fotoğraflardan seç',
+                gradient: [Colors.green, Colors.teal],
+                onTap: () => Navigator.pop(context, ImageSource.gallery),
+              ),
+
+              const SizedBox(height: 20),
+
+              // İptal butonu
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'İptal',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Resim kaynağı seçenek widget'ı:
+  Widget _buildImageSourceOption({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required List<Color> gradient,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withOpacity(0.1),
+            Colors.white.withOpacity(0.05),
+          ],
+        ),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.1),
+          width: 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: LinearGradient(colors: gradient),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          color: Colors.grey[400],
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_ios,
+                  color: Colors.white.withOpacity(0.5),
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Profil header'ın güncellenmiş hali (profil resmine tıklama özelliği ile):
+  // profile_page.dart
+
+// DEĞİŞTİRİLDİ: Profil başlığı widget'ı
+  Widget _buildProfileHeader() {
+    if (_isLoadingProfile) {
+      return Container(
+        height: 200,
+        color: Colors.grey[900],
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.only(top: 20, bottom: 30),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.blue.shade800,
+            Colors.black,
+          ],
+        ),
+      ),
+      child: Column(
+        children: [
+          // Profil Resmi - Tıklanabilir (Mevcut kodunuz)
+          Stack(
+            children: [
+              GestureDetector(
+                onTap: _pickAndUploadImage,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 10,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: CircleAvatar(
+                    radius: 50,
+                    backgroundColor: Colors.grey[800],
+                    backgroundImage:
+                        _photoUrl != null ? NetworkImage(_photoUrl!) : null,
+                    child: _photoUrl == null
+                        ? const Icon(Icons.person,
+                            size: 50, color: Colors.white70)
+                        : null,
+                  ),
+                ),
+              ),
+              if (_isUploadingImage)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withOpacity(0.7),
+                    ),
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 3,
+                      ),
+                    ),
+                  ),
+                ),
+              if (!_isUploadingImage)
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 5,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // --- DEĞİŞİKLİK BURADA ---
+          // Kullanıcı Adı ve Düzenleme Butonu
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(width: 44), // Butonun genişliği kadar boşluk
+              Text(
+                _username,
+                style: const TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black38,
+                      blurRadius: 2,
+                      offset: Offset(1, 1),
+                    ),
+                  ],
+                ),
+              ),
+              // Düzenleme butonu
+              IconButton(
+                splashRadius: 20,
+                icon: const Icon(Icons.edit, color: Colors.white70, size: 20),
+                onPressed: _showEditProfileDialog, // Yeni metodu çağır
+              )
+            ],
+          ),
+          // --- DEĞİŞİKLİK BİTTİ ---
+
+          // Email (Mevcut kodunuz)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+            child: Text(
+              _email,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[300],
+              ),
+            ),
+          ),
+
+          // Profil resmi değiştirme ipucu (Mevcut kodunuz)
+          if (!_isUploadingImage)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Profil resmini değiştirmek için resme dokun',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[400],
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+
+          const SizedBox(height: 20),
+
+          // İstatistikler (Mevcut kodunuz)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildStatCard(
+                  "Favoriler",
+                  _isLoadingFavorites ? "..." : _favorites.length.toString(),
+                  Icons.favorite,
+                  Colors.red,
+                ),
+                Container(
+                  height: 40,
+                  width: 1,
+                  color: Colors.grey[700],
+                ),
+                _buildStatCard(
+                  "İzlenmiş",
+                  _isLoadingHistory ? "..." : _watchHistory.length.toString(),
+                  Icons.visibility,
+                  Colors.green,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+//Kullanıcı adı güncelleme diyalogunu gösteren metot
+
+  Future<void> _showEditProfileDialog() async {
+    final TextEditingController usernameController =
+        TextEditingController(text: _username);
+    final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text('Profili Düzenle',
+              style: TextStyle(color: Colors.white)),
+          content: Form(
+            key: formKey,
+            child: TextFormField(
+              controller: usernameController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Kullanıcı Adı',
+                labelStyle: TextStyle(color: Colors.grey),
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.grey),
+                ),
+                focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.blue),
+                ),
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Kullanıcı adı boş olamaz.';
+                }
+                if (value.length < 3) {
+                  return 'Kullanıcı adı en az 3 karakter olmalıdır.';
+                }
+                return null;
+              },
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('İptal', style: TextStyle(color: Colors.grey)),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+              // --- DEĞİŞİKLİK BURADA ---
+              child: const Text(
+                'Kaydet',
+                style: TextStyle(color: Colors.white), // Metin rengi eklendi
+              ),
+              // --- DEĞİŞİKLİK BİTTİ ---
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  // Değişiklikleri kaydet ve diyalogu kapat
+                  _updateUsername(usernameController.text.trim());
+                  Navigator.of(context).pop();
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+// Kullanıcı adını Firebase ve Firestore'da güncelleyen metot
+  Future<void> _updateUsername(String newUsername) async {
+    if (_currentUser == null || newUsername == _username) return;
+
+    setState(() {
+      _username = newUsername;
+    });
+
+    try {
+      // DÜZELTME: Firestore veritabanını güncelle - merge kullan
+      await _firestore.collection('users').doc(_currentUser!.uid).set({
+        'username': newUsername,
+        'email': _email,
+        'photoUrl': _photoUrl,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // Firebase Authentication profilini güncelle
+      try {
+        await _currentUser!.updateDisplayName(newUsername);
+        await _currentUser!.reload();
+        _currentUser = _auth.currentUser;
+      } catch (authError) {
+        print(
+            "Firebase Auth (DisplayName) güncelleme hatası (yoksayılıyor): $authError");
+      }
+
+      // UI'ı anında güncellemek için verileri yeniden yükle
+      await _loadUserData();
+
+      if (mounted) {
+        CustomSnackbar.show(
+          context: context,
+          message: 'Kullanıcı adınız başarıyla güncellendi',
+          type: SnackbarType.success,
+        );
+      }
+    } catch (e) {
+      print('Kullanıcı adı güncellenirken hata: $e');
+      if (mounted) {
+        CustomSnackbar.show(
+          context: context,
+          message: 'Bir hata oluştu, lütfen tekrar deneyin.',
+          type: SnackbarType.error,
+        );
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -62,20 +657,31 @@ class _ProfilePageState extends State<ProfilePage>
 
         if (!mounted) return;
 
+        String username;
+        String email;
+        String? photoUrl;
+
+        if (userDoc.exists) {
+          Map<String, dynamic> userData =
+              userDoc.data() as Map<String, dynamic>;
+          username =
+              userData['username'] ?? _currentUser!.displayName ?? 'Kullanıcı';
+          email = _currentUser!.email ?? '';
+          photoUrl = userData['photoUrl'] ?? _currentUser!.photoURL;
+        } else {
+          // Eğer Firestore'da kullanıcı bilgisi yoksa, Firebase Auth'dan al ve kaydet
+          username = _currentUser!.displayName ?? 'Kullanıcı';
+          email = _currentUser!.email ?? '';
+          photoUrl = _currentUser!.photoURL;
+
+          // DÜZELTME: Kullanıcı bilgilerini Firestore'a kaydet
+          await _saveUserToFirestore(username, email, photoUrl);
+        }
+
         setState(() {
-          if (userDoc.exists) {
-            Map<String, dynamic> userData =
-                userDoc.data() as Map<String, dynamic>;
-            _username = userData['username'] ??
-                _currentUser!.displayName ??
-                'Kullanıcı';
-            _email = _currentUser!.email ?? '';
-            _photoUrl = userData['photoUrl'] ?? _currentUser!.photoURL;
-          } else {
-            _username = _currentUser!.displayName ?? 'Kullanıcı';
-            _email = _currentUser!.email ?? '';
-            _photoUrl = _currentUser!.photoURL;
-          }
+          _username = username;
+          _email = email;
+          _photoUrl = photoUrl;
           _isLoadingProfile = false;
         });
       } catch (e) {
@@ -95,6 +701,24 @@ class _ProfilePageState extends State<ProfilePage>
           _isLoadingProfile = false;
         });
       }
+    }
+  }
+
+// Kullanıcı bilgilerini Firestore'a kaydet
+  Future<void> _saveUserToFirestore(
+      String username, String email, String? photoUrl) async {
+    try {
+      await _firestore.collection('users').doc(_currentUser!.uid).set({
+        'username': username,
+        'email': email,
+        'photoUrl': photoUrl,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print("Kullanıcı bilgileri Firestore'a kaydedildi");
+    } catch (e) {
+      print("Kullanıcı bilgilerini Firestore'a kaydetme hatası: $e");
     }
   }
 
@@ -241,119 +865,6 @@ class _ProfilePageState extends State<ProfilePage>
               fontSize: 18,
             ),
             textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Modern profil başlığı
-  Widget _buildProfileHeader() {
-    if (_isLoadingProfile) {
-      return Container(
-        height: 200,
-        color: Colors.grey[900],
-        child: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.only(top: 20, bottom: 30),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.blue.shade800,
-            Colors.black,
-          ],
-        ),
-      ),
-      child: Column(
-        children: [
-          // Profil Resmi
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 10,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: CircleAvatar(
-              radius: 50,
-              backgroundColor: Colors.grey[800],
-              backgroundImage:
-                  _photoUrl != null ? NetworkImage(_photoUrl!) : null,
-              child: _photoUrl == null
-                  ? const Icon(Icons.person, size: 50, color: Colors.white70)
-                  : null,
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Kullanıcı Adı
-          Text(
-            _username,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-              shadows: [
-                Shadow(
-                  color: Colors.black38,
-                  blurRadius: 2,
-                  offset: Offset(1, 1),
-                ),
-              ],
-            ),
-          ),
-
-          // Email
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-            child: Text(
-              _email,
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey[300],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // İstatistikler
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildStatCard(
-                  "Favoriler",
-                  _isLoadingFavorites ? "..." : _favorites.length.toString(),
-                  Icons.favorite,
-                  Colors.red,
-                ),
-                Container(
-                  height: 40,
-                  width: 1,
-                  color: Colors.grey[700],
-                ),
-                _buildStatCard(
-                  "İzlenmiş",
-                  _isLoadingHistory ? "..." : _watchHistory.length.toString(),
-                  Icons.visibility,
-                  Colors.green,
-                ),
-              ],
-            ),
           ),
         ],
       ),

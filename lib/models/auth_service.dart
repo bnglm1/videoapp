@@ -17,81 +17,86 @@ class AuthService {
   Future<bool> signInWithEmail(String email, String password) async {
     try {
       print("Giriş denemesi: $email");
-      
+
       // Firebase'e giriş yap
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
-      
+
       final user = userCredential.user;
       if (user != null) {
         print("Giriş başarılı: ${user.uid}");
-        
+
         // Kullanıcının Firestore bilgilerini güncelle
         _updateUserLastLogin(user.uid, email);
-        
+
         return true;
       }
-      
+
       return false;
     } catch (e) {
       print("Giriş hatası: $e");
-      
+
       // PigeonUserDetails hatası aldıysak ve kullanıcı var ise yine de başarılı sayalım
-      if (e.toString().contains('PigeonUserDetails') && _auth.currentUser != null) {
-        print("PigeonUserDetails hatası görmezden gelindi, kullanıcı giriş yapmış sayıldı");
+      if (e.toString().contains('PigeonUserDetails') &&
+          _auth.currentUser != null) {
+        print(
+            "PigeonUserDetails hatası görmezden gelindi, kullanıcı giriş yapmış sayıldı");
         return true;
       }
-      
+
       rethrow;
     }
   }
 
   // Email ve şifre ile kayıt ol - TAMAMEN YENİLENMİŞ
-  Future<bool> signUpWithEmail(String email, String password, String username) async {
+  Future<bool> signUpWithEmail(
+      String email, String password, String username) async {
     String? userId;
-    
+
     // ADIM 1: Auth ile kullanıcı oluştur
     try {
       print("Kullanıcı oluşturma denemesi: $email");
-      
+
       final userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
-      
+
       userId = userCredential.user?.uid;
       print("Kullanıcı oluşturuldu: $userId");
-      
+
       // UpdateDisplayName çağrısını ATLA - PigeonUserDetails hatası burada oluşuyor
-      
     } catch (e) {
       print("Kullanıcı oluşturma hatası: $e");
-      
+
       // PigeonUserDetails hatası alındıysa ve kullanıcı oluşmuşsa devam et
-      if (e.toString().contains('PigeonUserDetails') && _auth.currentUser != null) {
+      if (e.toString().contains('PigeonUserDetails') &&
+          _auth.currentUser != null) {
         userId = _auth.currentUser!.uid;
-        print("PigeonUserDetails hatası görmezden gelindi, kullanıcı oluşturulmuş sayıldı: $userId");
+        print(
+            "PigeonUserDetails hatası görmezden gelindi, kullanıcı oluşturulmuş sayıldı: $userId");
       } else {
         rethrow; // Diğer hataları tekrar fırlat
       }
     }
-    
+
     // ADIM 2: Firestore'a kullanıcı bilgilerini ekle (userId varsa)
     if (userId != null) {
       try {
         print("Firestore'a kullanıcı bilgileri ekleniyor: $userId");
-        
+
         await _firestore.collection('users').doc(userId).set({
           'username': username,
           'email': email,
           'createdAt': FieldValue.serverTimestamp(),
           'lastLogin': FieldValue.serverTimestamp(),
+          'photoUrl': null,
         }, SetOptions(merge: true));
-        
+
         print("Firestore'a kullanıcı bilgileri eklendi");
-        
+
         // Kullanıcı adını local storage'a kaydet
         try {
           final prefs = await SharedPreferences.getInstance();
@@ -101,7 +106,7 @@ class AuthService {
         } catch (e) {
           print("SharedPreferences hatası: $e");
         }
-        
+
         return true;
       } catch (firestoreError) {
         print("Firestore kayıt hatası: $firestoreError");
@@ -109,15 +114,15 @@ class AuthService {
         return true;
       }
     }
-    
+
     return false;
   }
-  
+
   // Kullanıcı son giriş bilgilerini güncelle
   Future<void> _updateUserLastLogin(String userId, String email) async {
     try {
       final userDoc = await _firestore.collection('users').doc(userId).get();
-      
+
       if (!userDoc.exists) {
         // Kullanıcı Firestore'da yoksa yeni oluştur
         await _firestore.collection('users').doc(userId).set({
@@ -143,7 +148,7 @@ class AuthService {
   Future<void> signOut() async {
     try {
       await _auth.signOut();
-      
+
       // Local storage'ı temizle
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('username');

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui'; // BackdropFilter için eklendi
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -51,6 +52,9 @@ class _VideoListPageState extends State<VideoListPage>
   String? _photoUrl;
   bool _isLoadingProfile = true;
 
+  // Stream subscription için değişken
+  StreamSubscription<DocumentSnapshot>? _userDataSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +72,32 @@ class _VideoListPageState extends State<VideoListPage>
     // Kullanıcı bilgilerini yükle
     _currentUser = _auth.currentUser;
     _loadUserData();
+    _setupUserDataListener();
+  }
+
+  // Kullanıcı verilerini gerçek zamanlı dinleme metodu:
+  void _setupUserDataListener() {
+    if (_currentUser == null) return;
+
+    _userDataSubscription = _firestore
+        .collection('users')
+        .doc(_currentUser!.uid)
+        .snapshots()
+        .listen((DocumentSnapshot snapshot) {
+      if (!mounted) return;
+
+      if (snapshot.exists) {
+        Map<String, dynamic> userData = snapshot.data() as Map<String, dynamic>;
+        setState(() {
+          _username =
+              userData['username'] ?? _currentUser!.displayName ?? 'Kullanıcı';
+          _email = _currentUser!.email ?? '';
+          _photoUrl = userData['photoUrl'] ?? _currentUser!.photoURL;
+        });
+      }
+    }, onError: (e) {
+      print('Kullanıcı veri dinleme hatası: $e');
+    });
   }
 
   // Yeni metot - Kullanıcı bilgilerini yükle:
@@ -78,7 +108,7 @@ class _VideoListPageState extends State<VideoListPage>
 
     if (_currentUser != null) {
       try {
-        // Firestore'dan kullanıcı bilgilerini al
+        // İlk yükleme için
         DocumentSnapshot userDoc =
             await _firestore.collection('users').doc(_currentUser!.uid).get();
 
@@ -126,6 +156,7 @@ class _VideoListPageState extends State<VideoListPage>
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _animationController.dispose();
+    _userDataSubscription?.cancel();
     super.dispose();
   }
 
@@ -137,67 +168,19 @@ class _VideoListPageState extends State<VideoListPage>
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Animated play button
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
+          Container(
             width: 34,
             height: 34,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF2196F3), // Material Blue
-                  Color(0xFF21CBF3), // Lighter Blue
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+            decoration: const BoxDecoration(
+              color: Colors.white,
               shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.blue.withOpacity(0.4),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                  spreadRadius: 1,
-                ),
-                BoxShadow(
-                  color: Colors.white.withOpacity(0.1),
-                  blurRadius: 4,
-                  offset: const Offset(-2, -2),
-                ),
-              ],
             ),
-            child: Stack(
-              children: [
-                // Inner glow
-                Container(
-                  margin: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      center: const Alignment(-0.3, -0.3),
-                      colors: [
-                        Colors.white.withOpacity(0.3),
-                        Colors.transparent,
-                      ],
-                      stops: const [0.0, 0.8],
-                    ),
-                  ),
-                ),
-                // Play icon
-                const Center(
-                  child: Icon(
-                    Icons.play_arrow_outlined,
-                    color: Colors.white,
-                    size: 20,
-                    shadows: [
-                      Shadow(
-                        color: Colors.black26,
-                        blurRadius: 2,
-                        offset: Offset(1, 1),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            child: const Center(
+              child: Icon(
+                Icons.play_arrow_outlined,
+                size: 26,
+                color: Colors.blueAccent,
+              ),
             ),
           ),
 
