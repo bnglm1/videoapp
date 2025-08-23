@@ -53,6 +53,12 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   late WebViewController _webViewController;
   bool _isVideoInitialized = false;
   bool _showVideoControls = true;
+<<<<<<< HEAD
+=======
+  Timer? _hideVideoControlsTimer;
+
+  // WebView kontrolü
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
   bool _isWebViewVideoPlaying = false;
   Timer? _hideControlsTimer;
 
@@ -89,6 +95,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     _initializeEverything();
   }
 
+<<<<<<< HEAD
   Future<void> _initializeEverything() async {
     try {
       // Initialize WebView controller
@@ -210,6 +217,9 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
       _saveVideoPosition();
     }
   }
+=======
+  late final WebViewController _webViewController;
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
 
   void _loadWebView(String videoUrl) {
     final htmlContent = _generateWebViewHtml(videoUrl);
@@ -275,6 +285,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
   bool _shouldUseWebView(String videoUrl) {
     final url = videoUrl.toLowerCase();
 
+<<<<<<< HEAD
     // Direct video files use native player
     if (url.endsWith('.mp4') ||
         url.endsWith('.avi') ||
@@ -285,6 +296,110 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         url.endsWith('.webm') ||
         url.endsWith('.m3u8')) {
       return false;
+=======
+    _loadVideoSources(); // Video kaynaklarını yükle
+    _loadInterstitialAd();
+    _loadBannerAd();
+    _checkIfFavorite();
+    _saveToWatchHistory();
+    _incrementViewCounts();
+    _initializeVideo();
+    _loadSeriesTitleFromGitHub();
+    _loadComments();
+    _loadViewCount(); // İzlenme sayısını hemen yükle
+
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..enableZoom(false)
+      ..setBackgroundColor(const Color(0x00000000))
+      ..loadRequest(Uri.parse(_currentVideoUrl));
+  }
+
+  Widget _buildWebViewPlayer() {
+    return Stack(
+      children: [
+        WebViewWidget(
+          controller: _webViewController,
+        ),
+
+        // Sağ üst köşede kontrol butonları
+        Positioned(
+          right: 8,
+          top: 8,
+          child: Row(
+            children: [
+              // Oynat/Duraklat butonu
+              _buildMiniControlButton(
+                icon: _isWebViewVideoPlaying ? Icons.pause : Icons.play_arrow,
+                onTap: () {
+                  if (_isWebViewVideoPlaying) {
+                    // WebView içinde gerçek pause yapılamıyor, simülasyon
+                    setState(() {
+                      _isWebViewVideoPlaying = false;
+                    });
+                  } else {
+                    // Yeni URL yükle
+                    _webViewController.loadRequest(Uri.parse(_currentVideoUrl));
+                    setState(() {
+                      _isWebViewVideoPlaying = true;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(width: 8),
+              // Tam ekran butonu
+              _buildMiniControlButton(
+                icon: Icons.fullscreen,
+                onTap: _navigateToFullScreenPlayer,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _videoPlayerController?.dispose();
+    _hideVideoControlsTimer?.cancel();
+    _interstitialAd?.dispose();
+    _bannerAd?.dispose();
+    _commentController.dispose();
+    super.dispose();
+  }
+
+  // Video kaynaklarını yükle
+  void _loadVideoSources() {
+    print('🔍 Episode data kontrolü: ${widget.episode != null}');
+    print('🔍 Episode keys: ${widget.episode?.keys.toList()}');
+    if (widget.episode != null && widget.episode!['videoSources'] != null) {
+      // Her kaynak için hem videoUrl hem url anahtarını kontrol et
+      _videoSources = (widget.episode!['videoSources'] as List).map((source) {
+        final src = Map<String, dynamic>.from(source as Map);
+        final url = src['videoUrl'] ?? src['url'] ?? '';
+        return {
+          ...src,
+          'url': url,
+        };
+      }).toList();
+      print('🎥 Video kaynakları yüklendi: ${_videoSources.length} kaynak');
+      for (int i = 0; i < _videoSources.length; i++) {
+        print(
+            '   $i: ${_videoSources[i]['name']} (${_videoSources[i]['quality']}) url: ${_videoSources[i]['url']}');
+      }
+    } else {
+      // Geriye uyumluluk - eski format
+      _videoSources = [
+        {
+          'name': 'Varsayılan',
+          'quality': 'HD',
+          'url': widget.videoUrl,
+        }
+      ];
+      print('🎥 Eski format kullanılıyor - varsayılan kaynak eklendi');
+      print('🔍 Widget.videoUrl: ${widget.videoUrl}');
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
     }
 
     // Online platforms use WebView
@@ -316,6 +431,67 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
 
     _hideControlsTimer?.cancel();
     await _initializeVideo();
+<<<<<<< HEAD
+=======
+  }
+
+  // Yorumları yükle
+  // Yorumları yükle
+  Future<void> _loadComments() async {
+    print('_loadComments çağrıldı. episodeId: "${widget.episodeId}"');
+    print('Episode title: "${widget.episodeTitle}"');
+
+    if (widget.episodeId == null || widget.episodeId!.isEmpty) {
+      print(
+          'episodeId null veya boş, title ile deneniyor: "${widget.episodeTitle}"');
+
+      // episodeId yoksa title ile dene
+      if (widget.episodeTitle.isNotEmpty) {
+        setState(() {
+          _isLoadingComments = true;
+        });
+
+        try {
+          final snapshot = await _firestore
+              .collection('comments')
+              .where('episodeId', isEqualTo: widget.episodeTitle)
+              .get(); // orderBy'ı kaldır
+
+          final comments = <Map<String, dynamic>>[];
+          for (var doc in snapshot.docs) {
+            final data = doc.data();
+            data['id'] = doc.id;
+            comments.add(data);
+          }
+
+          // Manuel sıralama yap
+          comments.sort((a, b) {
+            final aTime = a['createdAt'] as Timestamp?;
+            final bTime = b['createdAt'] as Timestamp?;
+            if (aTime == null && bTime == null) return 0;
+            if (aTime == null) return 1;
+            if (bTime == null) return -1;
+            return bTime.compareTo(aTime);
+          });
+
+          setState(() {
+            _comments = comments;
+            _isLoadingComments = false;
+          });
+
+          print('Title ile ${comments.length} yorum yüklendi');
+          return;
+        } catch (e) {
+          print('Title ile yorum yükleme hatası: $e');
+        }
+      }
+
+      setState(() {
+        _isLoadingComments = false;
+      });
+      return;
+    }
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
 
     setState(() {
       _isSwitchingSource = false;
@@ -328,6 +504,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
       _showVideoControls = !_showVideoControls;
     });
 
+<<<<<<< HEAD
     if (_showVideoControls) {
       _startControlsTimer();
     }
@@ -340,16 +517,200 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
         setState(() {
           _showVideoControls = false;
         });
+=======
+    try {
+      final snapshot = await _firestore
+          .collection('comments')
+          .where('episodeId', isEqualTo: widget.episodeId)
+          .get(); // orderBy'ı kaldır
+
+      final comments = <Map<String, dynamic>>[];
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        comments.add(data);
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
       }
     });
   }
 
+<<<<<<< HEAD
   void _togglePlayPause() {
     if (_videoController != null && _videoController!.value.isInitialized) {
       if (_videoController!.value.isPlaying) {
         _videoController!.pause();
       } else {
         _videoController!.play();
+=======
+      // Manuel sıralama yap
+      comments.sort((a, b) {
+        final aTime = a['createdAt'] as Timestamp?;
+        final bTime = b['createdAt'] as Timestamp?;
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime);
+      });
+
+      setState(() {
+        _comments = comments;
+        _isLoadingComments = false;
+      });
+
+      print('episodeId ile ${comments.length} yorum yüklendi');
+    } catch (e) {
+      print('Yorumlar yüklenirken hata: $e');
+      setState(() {
+        _isLoadingComments = false;
+      });
+    }
+  }
+
+  // Yorum ekle
+  Future<void> _addComment() async {
+    final user = _auth.currentUser;
+    print(
+        '_addComment çağrıldı. user: ${user?.email}, episodeId: ${widget.episodeId}');
+
+    if (user == null) {
+      print('Kullanıcı giriş yapmamış');
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const SignInPage()),
+      );
+      return;
+    }
+
+    if (_commentController.text.trim().isEmpty) {
+      print('Yorum boş');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Lütfen bir yorum yazın'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (widget.episodeId == null || widget.episodeId!.isEmpty) {
+      print('episodeId null veya boş');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bölüm bilgisi bulunamadı'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isAddingComment = true;
+    });
+
+    try {
+      print('Firestore\'a yorum ekleniyor: ${_commentController.text.trim()}');
+
+      // Kullanıcı adını Firestore'dan al
+      String userName = 'Bilinmeyen Kullanıcı';
+      try {
+        final userDoc =
+            await _firestore.collection('users').doc(user.uid).get();
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>;
+          userName = userData['username'] ??
+              userData['displayName'] ??
+              user.displayName ??
+              user.email?.split('@')[0] ??
+              'Bilinmeyen Kullanıcı';
+        } else {
+          // Firestore'da kullanıcı yoksa, mevcut bilgilerden al
+          userName = user.displayName ??
+              user.email?.split('@')[0] ??
+              'Bilinmeyen Kullanıcı';
+        }
+      } catch (e) {
+        print('Kullanıcı adı alınırken hata: $e');
+        userName = user.displayName ??
+            user.email?.split('@')[0] ??
+            'Bilinmeyen Kullanıcı';
+      }
+
+      print('Kullanıcı adı belirlendi: $userName');
+
+      await _firestore.collection('comments').add({
+        'episodeId': widget.episodeId,
+        'userId': user.uid,
+        'userEmail': user.email ?? 'Bilinmeyen Kullanıcı',
+        'userName': userName,
+        'comment': _commentController.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'photoUrl': _auth.currentUser!.photoURL,
+      });
+
+      print('Yorum başarıyla eklendi');
+      _commentController.clear();
+      await _loadComments(); // Yorumları yeniden yükle
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Yorum başarıyla eklendi'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Yorum eklenirken hata: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Yorum eklenirken hata oluştu: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() {
+        _isAddingComment = false;
+      });
+    }
+  }
+
+  // Yorum sil
+  Future<void> _deleteComment(String commentId, String userId) async {
+    final user = _auth.currentUser;
+    if (user == null || user.uid != userId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bu yorumu silme yetkiniz yok'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    try {
+      await _firestore.collection('comments').doc(commentId).delete();
+      await _loadComments(); // Yorumları yeniden yükle
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Yorum silindi'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Yorum silinirken hata: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Yorum silinirken hata oluştu'),
+            backgroundColor: Colors.red,
+          ),
+        );
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
       }
     }
   }
@@ -1338,6 +1699,7 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
     );
   }
 
+<<<<<<< HEAD
   Widget _buildDivider() {
     return Container(width: 1, height: 40, color: Colors.grey[800]);
   }
@@ -1357,10 +1719,42 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
           _buildCommentInput(),
           _buildCommentsList(),
         ],
+=======
+  // Önceki bölüme git
+  // Önceki bölüme git
+  // Önceki bölüme git
+  void _navigateToPreviousEpisode() {
+    if (widget.episodeList == null || widget.currentIndex == null) return;
+    if (widget.currentIndex! <= 0) return;
+
+    final previousEpisode = widget.episodeList![widget.currentIndex! - 1];
+
+    // episodeId'yi doğru şekilde al
+    String? episodeId = previousEpisode['episodeId'] ??
+        previousEpisode['id'] ??
+        previousEpisode['title']; // Fallback olarak title kullan
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EpisodeDetailsPage(
+          videoUrl: previousEpisode['videoUrl'] ?? '',
+          episodeTitle: previousEpisode['title'] ?? 'Önceki Bölüm',
+          thumbnailUrl: previousEpisode['thumbnail'],
+          seriesId: widget.seriesId,
+          episodeId: episodeId, // Bu satırı düzelttik
+          seasonIndex: widget.seasonIndex,
+          episodeIndex: widget.currentIndex! - 1,
+          episodeList: widget.episodeList,
+          currentIndex: widget.currentIndex! - 1,
+          episode: previousEpisode,
+        ),
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
       ),
     );
   }
 
+<<<<<<< HEAD
   Widget _buildCommentsHeader() {
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -1377,6 +1771,35 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
             ),
           ),
         ],
+=======
+// Sonraki bölüme git
+  void _navigateToNextEpisode() {
+    if (widget.episodeList == null || widget.currentIndex == null) return;
+    if (widget.currentIndex! >= widget.episodeList!.length - 1) return;
+
+    final nextEpisode = widget.episodeList![widget.currentIndex! + 1];
+
+    // episodeId'yi doğru şekilde al
+    String? episodeId = nextEpisode['episodeId'] ??
+        nextEpisode['id'] ??
+        nextEpisode['title']; // Fallback olarak title kullan
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => EpisodeDetailsPage(
+          videoUrl: nextEpisode['videoUrl'] ?? '',
+          episodeTitle: nextEpisode['title'] ?? 'Sonraki Bölüm',
+          thumbnailUrl: nextEpisode['thumbnail'],
+          seriesId: widget.seriesId,
+          episodeId: episodeId, // Bu satırı düzelttik
+          seasonIndex: widget.seasonIndex,
+          episodeIndex: widget.currentIndex! + 1,
+          episodeList: widget.episodeList,
+          currentIndex: widget.currentIndex! + 1,
+          episode: nextEpisode,
+        ),
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
       ),
     );
   }
@@ -1718,7 +2141,188 @@ class _EpisodeDetailsPageState extends State<EpisodeDetailsPage> {
                     // Comments Section
                     _buildCommentsSection(),
 
+<<<<<<< HEAD
                     const SizedBox(height: 20),
+=======
+                          // Yorumlar listesi
+                          if (_isLoadingComments)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(
+                                child: CircularProgressIndicator(
+                                  valueColor:
+                                      AlwaysStoppedAnimation<Color>(Colors.red),
+                                ),
+                              ),
+                            )
+                          else if (_comments.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Center(
+                                child: Text(
+                                  'Henüz yorum yapılmamış.\nİlk yorumu siz yapın!',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: Colors.white54,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            )
+                          else if (_comments.isNotEmpty)
+                            ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              itemCount: _comments.length,
+                              separatorBuilder: (context, index) {
+                                // Güvenli separator
+                                if (index < 0 ||
+                                    index >= _comments.length - 1) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Divider(
+                                  color: Colors.white.withOpacity(0.1),
+                                  height: 1,
+                                );
+                              },
+                              itemBuilder: (context, index) {
+                                // Güvenli indeks kontrolü
+                                if (index < 0 || index >= _comments.length) {
+                                  return const SizedBox.shrink();
+                                }
+
+                                final comment = _comments[index];
+                                final createdAt =
+                                    comment['createdAt'] as Timestamp?;
+                                final timeAgo = createdAt != null
+                                    ? _formatTimeAgo(createdAt.toDate())
+                                    : 'Bilinmiyor';
+
+                                // Güvenli userName erişimi ve formatlaması
+                                String userName = 'Bilinmeyen Kullanıcı';
+                                if (comment['userName'] != null &&
+                                    comment['userName']
+                                        .toString()
+                                        .trim()
+                                        .isNotEmpty) {
+                                  userName =
+                                      comment['userName'].toString().trim();
+                                } else if (comment['userEmail'] != null &&
+                                    comment['userEmail']
+                                        .toString()
+                                        .trim()
+                                        .isNotEmpty) {
+                                  // Email'den kullanıcı adı çıkar
+                                  final email = comment['userEmail'].toString();
+                                  if (email.contains('@')) {
+                                    userName = email.split('@')[0];
+                                  } else {
+                                    userName = email;
+                                  }
+                                }
+
+                                // Kullanıcı adını güzelleştir (ilk harfleri büyük yap)
+                                userName = userName
+                                    .split(' ')
+                                    .map((word) => word.isNotEmpty
+                                        ? word[0].toUpperCase() +
+                                            word.substring(1).toLowerCase()
+                                        : word)
+                                    .join(' ');
+
+                                final userInitial = userName.isNotEmpty
+                                    ? userName[0].toUpperCase()
+                                    : 'U';
+
+                                return Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          CircleAvatar(
+                                            radius: 16,
+                                            backgroundImage:
+                                                comment['photoUrl'] != null &&
+                                                        comment['photoUrl']
+                                                            .toString()
+                                                            .isNotEmpty
+                                                    ? NetworkImage(
+                                                        comment['photoUrl'])
+                                                    : null,
+                                            backgroundColor: Colors.red,
+                                            child:
+                                                (comment['photoUrl'] == null ||
+                                                        comment['photoUrl']
+                                                            .toString()
+                                                            .isEmpty)
+                                                    ? Text(
+                                                        userInitial,
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      )
+                                                    : null,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  userName,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  timeAgo,
+                                                  style: const TextStyle(
+                                                    color: Colors.white54,
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          // 3 nokta menüsü (her yorum için)
+                                          IconButton(
+                                            onPressed: () =>
+                                                _showCommentOptions(comment),
+                                            icon: const Icon(
+                                              Icons.more_vert,
+                                              color: Colors.white54,
+                                              size: 20,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        comment['comment']?.toString() ?? '',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+>>>>>>> 323b2f7df10ee8af7c6d4ec34cf2cf5b33e6ea89
                   ],
                 ),
               ),
